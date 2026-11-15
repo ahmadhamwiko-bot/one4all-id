@@ -277,5 +277,22 @@ client.on("interactionCreate", async interaction => {
     });
   }
 });
+client.once('ready', () => {
+  const channelId = '1568597170779852810';
 
+  setInterval(async () => {
+    try {
+      const channel = await client.channels.fetch(channelId);
+
+      if (channel && channel.isTextBased()) {
+        await channel.send({
+          content: '@everyone 📢 The chat needs you! Come say hi and keep One4All alive! ❤️🔥',
+          allowedMentions: { parse: ['everyone'] }
+        });
+      }
+    } catch (error) {
+      console.error('Chat revival error:', error);
+    }
+  }, 3 * 60 * 60 * 1000);
+});
 client.login(token);
