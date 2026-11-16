@@ -12,8 +12,16 @@ const {
 
 const Database = require("better-sqlite3");
 
+// ================= CONFIG =================
+
 const token = process.env.DISCORD_TOKEN;
+
 const LOG_CHANNEL_ID = "1571861990278824066";
+const REVIVAL_CHANNEL_ID = "1568597170779852810";
+
+const REVIVAL_INTERVAL = 90 * 60 * 1000;
+
+// ===========================================
 
 if (!token) {
   console.error("Missing DISCORD_TOKEN secret!");
@@ -56,6 +64,8 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 `);
 
+// ================= MEMBER SYSTEM =================
+
 function getMember(guildId, userId) {
   let member = db.prepare(
     "SELECT * FROM members WHERE guild_id = ? AND user_id = ?"
@@ -88,6 +98,8 @@ function getMember(guildId, userId) {
   return member;
 }
 
+// ================= DISCORD CLIENT =================
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -95,6 +107,10 @@ const client = new Client({
     GatewayIntentBits.GuildMembers
   ]
 });
+
+let revivalTimer = null;
+
+// ================= TICKET TYPES =================
 
 const ticketTypes = {
   staff: {
@@ -138,12 +154,15 @@ const staffApplicationQuestions = [
   }
 ];
 
+// ================= TICKET STAFF =================
+
 function isTicketStaff(interaction) {
   if (interaction.memberPermissions?.has(
     PermissionsBitField.Flags.ManageGuild
   )) return true;
 
   const roles = interaction.member?.roles?.cache;
+
   if (!roles) return false;
 
   const allowed = db.prepare(
@@ -152,6 +171,8 @@ function isTicketStaff(interaction) {
 
   return allowed.some(item => roles.has(item.role_id));
 }
+
+// ================= TICKET LOGS =================
 
 async function sendTicketLog(guild, embed) {
   try {
@@ -164,6 +185,8 @@ async function sendTicketLog(guild, embed) {
     console.error("Ticket log error:", error);
   }
 }
+
+// ================= CREATE TICKET =================
 
 async function createTicket(interaction, type) {
   const guild = interaction.guild;
@@ -271,6 +294,7 @@ async function createTicket(interaction, type) {
       .setLabel("Claim")
       .setEmoji("🙋")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId("ticket:close")
       .setLabel("Close")
@@ -285,7 +309,8 @@ async function createTicket(interaction, type) {
     allowedMentions: { users: [user.id] }
   });
 
-  await sendTicketLog(guild,
+  await sendTicketLog(
+    guild,
     new EmbedBuilder()
       .setColor("#22C55E")
       .setTitle("🎫 Ticket Opened")
@@ -303,13 +328,66 @@ async function createTicket(interaction, type) {
   });
 }
 
+// ================= DEAD CHAT REVIVAL =================
+
+async function sendChatRevival() {
+  try {
+    const channel = await client.channels.fetch(
+      REVIVAL_CHANNEL_ID
+    );
+
+    if (!channel || !channel.isTextBased() || !channel.send) {
+      console.error("Chat Revival: Invalid text channel!");
+      return;
+    }
+
+    await channel.send({
+      content:
+        "@everyone 📢 The chat needs you! Come say hi and keep One4All alive! ❤️🔥",
+
+      allowedMentions: {
+        parse: ["everyone"]
+      }
+    });
+
+    console.log(
+      `[CHAT REVIVAL] Message sent successfully at ${new Date().toLocaleString("en-GB", { timeZone: "Asia/Beirut" })}`
+    );
+
+  } catch (error) {
+    console.error("Chat revival error:", error);
+  }
+}
+
+function startChatRevival() {
+  if (revivalTimer) {
+    clearInterval(revivalTimer);
+    revivalTimer = null;
+  }
+
+  console.log("Chat Revival system started.");
+  console.log("Interval: Every 90 minutes.");
+
+  revivalTimer = setInterval(() => {
+    sendChatRevival();
+  }, REVIVAL_INTERVAL);
+}
+
+// ================= BOT READY =================
+
 client.once("ready", () => {
   console.log(`${client.user.tag} is online!`);
+
+  startChatRevival();
 });
+
+// ================= NEW MEMBERS =================
 
 client.on("guildMemberAdd", member => {
   getMember(member.guild.id, member.id);
 });
+
+// ================= XP SYSTEM =================
 
 client.on("messageCreate", message => {
   if (!message.guild || message.author.bot) return;
@@ -324,17 +402,27 @@ client.on("messageCreate", message => {
   `).run(gained, message.guild.id, message.author.id);
 });
 
+// ================= INTERACTIONS =================
+
 client.on("interactionCreate", async interaction => {
   if (!interaction.guild) return;
 
   try {
+
+    // ================= BUTTONS =================
+
     if (interaction.isButton()) {
+
       if (interaction.customId.startsWith("ticket:create:")) {
         const type = interaction.customId.split(":")[2];
+
         return await createTicket(interaction, type);
       }
 
+      // ================= CLAIM =================
+
       if (interaction.customId === "ticket:claim") {
+
         if (!isTicketStaff(interaction)) {
           return interaction.reply({
             content: "You are not authorized to claim tickets.",
@@ -370,7 +458,8 @@ client.on("interactionCreate", async interaction => {
           content: `🙋 This ticket has been claimed by ${interaction.user}.`
         });
 
-        await sendTicketLog(interaction.guild,
+        await sendTicketLog(
+          interaction.guild,
           new EmbedBuilder()
             .setColor("#3B82F6")
             .setTitle("🙋 Ticket Claimed")
@@ -384,7 +473,10 @@ client.on("interactionCreate", async interaction => {
         return;
       }
 
+      // ================= CLOSE =================
+
       if (interaction.customId === "ticket:close") {
+
         const ticket = db.prepare(`
           SELECT * FROM tickets
           WHERE channel_id = ? AND status = 'open'
@@ -440,7 +532,8 @@ client.on("interactionCreate", async interaction => {
           console.error("Ticket close message error:", error);
         }
 
-        await sendTicketLog(interaction.guild,
+        await sendTicketLog(
+          interaction.guild,
           new EmbedBuilder()
             .setColor("#EF4444")
             .setTitle("🔒 Ticket Closed")
@@ -456,13 +549,18 @@ client.on("interactionCreate", async interaction => {
       }
     }
 
+    // ================= SLASH COMMANDS =================
+
     if (!interaction.isChatInputCommand()) return;
 
     const guildId = interaction.guild.id;
     const userId = interaction.user.id;
     const command = interaction.commandName;
 
+    // ================= TICKET PANEL =================
+
     if (command === "ticket-panel") {
+
       const embed = new EmbedBuilder()
         .setColor("#D4AF37")
         .setTitle("🎫 ONE4ALL SUPPORT")
@@ -477,6 +575,7 @@ client.on("interactionCreate", async interaction => {
           .setLabel("Staff Applications")
           .setEmoji("👮")
           .setStyle(ButtonStyle.Success),
+
         new ButtonBuilder()
           .setCustomId("ticket:create:suggestions")
           .setLabel("Suggestions")
@@ -490,6 +589,7 @@ client.on("interactionCreate", async interaction => {
           .setLabel("Scammer Report")
           .setEmoji("🚨")
           .setStyle(ButtonStyle.Danger),
+
         new ButtonBuilder()
           .setCustomId("ticket:create:support")
           .setLabel("General Support")
@@ -508,7 +608,10 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    // ================= TICKET ROLE =================
+
     if (command === "ticket-role") {
+
       if (!interaction.memberPermissions.has(
         PermissionsBitField.Flags.ManageGuild
       )) {
@@ -564,10 +667,17 @@ client.on("interactionCreate", async interaction => {
       }
     }
 
+    // ================= MEMBER DATA =================
+
     const member = getMember(guildId, userId);
 
+    // ================= ID =================
+
     if (command === "id") {
-      const target = interaction.options.getUser("member") || interaction.user;
+
+      const target =
+        interaction.options.getUser("member") || interaction.user;
+
       const data = getMember(guildId, target.id);
 
       const embed = new EmbedBuilder()
@@ -576,17 +686,32 @@ client.on("interactionCreate", async interaction => {
         .setThumbnail(target.displayAvatarURL())
         .addFields(
           { name: "Member", value: target.username, inline: true },
-          { name: "Member ID", value: `#${String(data.member_id).padStart(4, "0")}`, inline: true },
-          { name: "Level", value: String(Math.floor(data.xp / 100) + 1), inline: true },
+          {
+            name: "Member ID",
+            value: `#${String(data.member_id).padStart(4, "0")}`,
+            inline: true
+          },
+          {
+            name: "Level",
+            value: String(Math.floor(data.xp / 100) + 1),
+            inline: true
+          },
           { name: "XP", value: String(data.xp), inline: true },
-          { name: "Reputation", value: String(data.reputation), inline: true }
+          {
+            name: "Reputation",
+            value: String(data.reputation),
+            inline: true
+          }
         )
         .setFooter({ text: "One4All Community • 1FA" });
 
       return interaction.reply({ embeds: [embed] });
     }
 
+    // ================= RANK =================
+
     if (command === "rank") {
+
       const level = Math.floor(member.xp / 100) + 1;
       const progress = member.xp % 100;
 
@@ -602,8 +727,13 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    // ================= REPUTATION =================
+
     if (command === "reputation") {
-      const target = interaction.options.getUser("member") || interaction.user;
+
+      const target =
+        interaction.options.getUser("member") || interaction.user;
+
       const data = getMember(guildId, target.id);
 
       return interaction.reply({
@@ -611,7 +741,10 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    // ================= ACHIEVEMENTS =================
+
     if (command === "achievements") {
+
       const achievements = [];
 
       if (member.xp >= 100) achievements.push("🥉 First Level");
@@ -632,7 +765,10 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    // ================= LEADERBOARD =================
+
     if (command === "leaderboard") {
+
       const top = db.prepare(`
         SELECT user_id, xp, reputation
         FROM members
@@ -655,11 +791,15 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    // ================= DAILY =================
+
     if (command === "daily") {
+
       const now = Date.now();
       const cooldown = 24 * 60 * 60 * 1000;
 
       if (now - member.last_daily < cooldown) {
+
         const hours = Math.ceil(
           (cooldown - (now - member.last_daily)) / 3600000
         );
@@ -681,7 +821,10 @@ client.on("interactionCreate", async interaction => {
       );
     }
 
+    // ================= ADMIN =================
+
     if (command === "admin") {
+
       if (!interaction.memberPermissions.has(
         PermissionsBitField.Flags.ManageGuild
       )) {
@@ -697,7 +840,10 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
+    // ================= ADD REPUTATION =================
+
     if (command === "reputation-add") {
+
       if (!interaction.memberPermissions.has(
         PermissionsBitField.Flags.ManageGuild
       )) {
@@ -730,7 +876,8 @@ client.on("interactionCreate", async interaction => {
     }
 
   } catch (error) {
-    console.error(error);
+
+    console.error("Interaction error:", error);
 
     if (interaction.replied || interaction.deferred) {
       return interaction.followUp({
@@ -746,23 +893,6 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-client.once("ready", () => {
-  const channelId = "1568597170779852810";
-
-  setInterval(async () => {
-    try {
-      const channel = await client.channels.fetch(channelId);
-
-      if (channel && channel.isTextBased()) {
-        await channel.send({
-          content: "@everyone 📢 The chat needs you! Come say hi and keep One4All alive! ❤️🔥",
-          allowedMentions: { parse: ["everyone"] }
-        });
-      }
-    } catch (error) {
-      console.error("Chat revival error:", error);
-    }
-  }, 3 * 60 * 60 * 1000);
-});
+// ================= LOGIN =================
 
 client.login(token);
