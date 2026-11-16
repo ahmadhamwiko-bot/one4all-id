@@ -62,6 +62,11 @@ const commands = [
     .setDescription("Open One4All ID admin tools"),
 
   new SlashCommandBuilder()
+    .setName("command-center")
+    .setDescription("Open the One4All Command Center")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
     .setName("ticket-panel")
     .setDescription("Publish the One4All ticket panel")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
