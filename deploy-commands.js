@@ -2,7 +2,8 @@
 const {
   REST,
   Routes,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  PermissionFlagsBits
 } = require("discord.js");
 
 const commands = [
@@ -58,7 +59,42 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("admin")
-    .setDescription("Open One4All ID admin tools")
+    .setDescription("Open One4All ID admin tools"),
+
+  new SlashCommandBuilder()
+    .setName("ticket-panel")
+    .setDescription("Publish the One4All ticket panel")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName("ticket-role")
+    .setDescription("Manage ticket staff roles")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName("add")
+        .setDescription("Allow a role to manage tickets")
+        .addRoleOption(option =>
+          option.setName("role")
+            .setDescription("Role to add")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName("remove")
+        .setDescription("Remove a ticket staff role")
+        .addRoleOption(option =>
+          option.setName("role")
+            .setDescription("Role to remove")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName("list")
+        .setDescription("Show all ticket staff roles")
+    )
 ].map(command => command.toJSON());
 
 const token = process.env.DISCORD_TOKEN;
@@ -73,7 +109,7 @@ const rest = new REST({ version: "10" }).setToken(token);
 
 (async () => {
   try {
-    console.log("Registering One4All ID commands...");
+    console.log("Registering One4All commands...");
 
     await rest.put(
       Routes.applicationCommands(clientId),
