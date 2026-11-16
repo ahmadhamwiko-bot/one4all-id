@@ -97,9 +97,9 @@ const client = new Client({
 });
 
 const ticketTypes = {
-  middleman: {
-    label: "Middleman Request",
-    emoji: "🤝"
+  staff: {
+    label: "Staff Applications",
+    emoji: "👮"
   },
   suggestions: {
     label: "Suggestions",
@@ -114,6 +114,29 @@ const ticketTypes = {
     emoji: "🎧"
   }
 };
+
+const staffApplicationQuestions = [
+  {
+    name: "1. Discord Username",
+    value: "Please provide your Discord username."
+  },
+  {
+    name: "2. Blockman Go ID",
+    value: "Please provide your Blockman Go account ID."
+  },
+  {
+    name: "3. Previous Staff Experience",
+    value: "Have you ever been a staff member in another server? Explain your experience."
+  },
+  {
+    name: "4. Why do you want to be staff in One4All?",
+    value: "Tell us why you want to join our staff team."
+  },
+  {
+    name: "5. How active are you?",
+    value: "How many hours per day can you dedicate to One4All?"
+  }
+];
 
 function isTicketStaff(interaction) {
   if (interaction.memberPermissions?.has(
@@ -223,14 +246,24 @@ async function createTicket(interaction, type) {
   const embed = new EmbedBuilder()
     .setColor("#D4AF37")
     .setTitle(`${info.emoji} ${info.label}`)
-    .setDescription(
+    .setFooter({ text: "One4All Community • 1FA" });
+
+  if (type === "staff") {
+    embed.setDescription(
+      `Welcome ${user}!\n\nThank you for your interest in joining the **One4All Staff Team**.\n\nPlease answer all the following questions honestly and clearly.`
+    );
+
+    embed.addFields(staffApplicationQuestions);
+  } else {
+    embed.setDescription(
       `Welcome ${user}!\n\nPlease explain your request clearly. Our team will assist you soon.`
-    )
-    .addFields(
-      { name: "Member", value: user.tag, inline: true },
-      { name: "Status", value: "Open", inline: true }
-    )
-    .setFooter({ text: "One4All Support • 1FA" });
+    );
+  }
+
+  embed.addFields(
+    { name: "Member", value: user.tag, inline: true },
+    { name: "Status", value: "Open", inline: true }
+  );
 
   const buttons = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -440,9 +473,9 @@ client.on("interactionCreate", async interaction => {
 
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId("ticket:create:middleman")
-          .setLabel("Middleman")
-          .setEmoji("🤝")
+          .setCustomId("ticket:create:staff")
+          .setLabel("Staff Applications")
+          .setEmoji("👮")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId("ticket:create:suggestions")
