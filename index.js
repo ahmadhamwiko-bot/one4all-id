@@ -101,9 +101,9 @@ const ticketTypes = {
     label: "Middleman Request",
     emoji: "🤝"
   },
-  trading: {
-    label: "Account Trading",
-    emoji: "💰"
+  suggestions: {
+    label: "Suggestions",
+    emoji: "💡"
   },
   scammer: {
     label: "Scammer Report",
@@ -295,7 +295,6 @@ client.on("interactionCreate", async interaction => {
   if (!interaction.guild) return;
 
   try {
-    // Ticket buttons
     if (interaction.isButton()) {
       if (interaction.customId.startsWith("ticket:create:")) {
         const type = interaction.customId.split(":")[2];
@@ -352,7 +351,6 @@ client.on("interactionCreate", async interaction => {
         return;
       }
 
-      // Fixed ticket close system
       if (interaction.customId === "ticket:close") {
         const ticket = db.prepare(`
           SELECT * FROM tickets
@@ -375,12 +373,10 @@ client.on("interactionCreate", async interaction => {
           });
         }
 
-        // Acknowledge the button interaction
         await interaction.deferUpdate();
 
         const oldName = interaction.channel.name;
 
-        // First update permissions
         await interaction.channel.permissionOverwrites.edit(
           ticket.owner_id,
           {
@@ -388,25 +384,21 @@ client.on("interactionCreate", async interaction => {
           }
         );
 
-        // Then rename the channel
         await interaction.channel.setName(
           `closed-${oldName}`.slice(0, 100)
         );
 
-        // Only mark as closed after Discord actions succeed
         db.prepare(`
           UPDATE tickets SET status = 'closed'
           WHERE channel_id = ?
         `).run(interaction.channelId);
 
-        // Remove the ticket buttons
         try {
           await interaction.message.edit({ components: [] });
         } catch (error) {
           console.error("Ticket button update error:", error);
         }
 
-        // Send confirmation inside the ticket
         try {
           await interaction.channel.send({
             content: `🔒 Ticket closed by ${interaction.user}.`
@@ -415,7 +407,6 @@ client.on("interactionCreate", async interaction => {
           console.error("Ticket close message error:", error);
         }
 
-        // Send close log
         await sendTicketLog(interaction.guild,
           new EmbedBuilder()
             .setColor("#EF4444")
@@ -438,7 +429,6 @@ client.on("interactionCreate", async interaction => {
     const userId = interaction.user.id;
     const command = interaction.commandName;
 
-    // Ticket panel
     if (command === "ticket-panel") {
       const embed = new EmbedBuilder()
         .setColor("#D4AF37")
@@ -455,9 +445,9 @@ client.on("interactionCreate", async interaction => {
           .setEmoji("🤝")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
-          .setCustomId("ticket:create:trading")
-          .setLabel("Account Trading")
-          .setEmoji("💰")
+          .setCustomId("ticket:create:suggestions")
+          .setLabel("Suggestions")
+          .setEmoji("💡")
           .setStyle(ButtonStyle.Primary)
       );
 
@@ -485,7 +475,6 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    // Ticket staff roles
     if (command === "ticket-role") {
       if (!interaction.memberPermissions.has(
         PermissionsBitField.Flags.ManageGuild
@@ -542,7 +531,6 @@ client.on("interactionCreate", async interaction => {
       }
     }
 
-    // Existing One4All commands
     const member = getMember(guildId, userId);
 
     if (command === "id") {
