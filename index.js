@@ -352,6 +352,7 @@ client.on("interactionCreate", async interaction => {
         return;
       }
 
+      // Fixed ticket close system
       if (interaction.customId === "ticket:close") {
         const ticket = db.prepare(`
           SELECT * FROM tickets
@@ -374,11 +375,12 @@ client.on("interactionCreate", async interaction => {
           });
         }
 
-        db.prepare(`
-          UPDATE tickets SET status = 'closed'
-          WHERE channel_id = ?
-        `).run(interaction.channelId);
+        // Acknowledge the button interaction
+        await interaction.deferUpdate();
 
+        const oldName = interaction.channel.name;
+
+        // First update permissions
         await interaction.channel.permissionOverwrites.edit(
           ticket.owner_id,
           {
@@ -386,16 +388,34 @@ client.on("interactionCreate", async interaction => {
           }
         );
 
+        // Then rename the channel
         await interaction.channel.setName(
-          `closed-${interaction.channel.name}`.slice(0, 100)
+          `closed-${oldName}`.slice(0, 100)
         );
 
-        await interaction.reply({
-          content: `🔒 Ticket closed by ${interaction.user}.`
-        });
+        // Only mark as closed after Discord actions succeed
+        db.prepare(`
+          UPDATE tickets SET status = 'closed'
+          WHERE channel_id = ?
+        `).run(interaction.channelId);
 
-        await interaction.message.edit({ components: [] });
+        // Remove the ticket buttons
+        try {
+          await interaction.message.edit({ components: [] });
+        } catch (error) {
+          console.error("Ticket button update error:", error);
+        }
 
+        // Send confirmation inside the ticket
+        try {
+          await interaction.channel.send({
+            content: `🔒 Ticket closed by ${interaction.user}.`
+          });
+        } catch (error) {
+          console.error("Ticket close message error:", error);
+        }
+
+        // Send close log
         await sendTicketLog(interaction.guild,
           new EmbedBuilder()
             .setColor("#EF4444")
@@ -403,7 +423,7 @@ client.on("interactionCreate", async interaction => {
             .addFields(
               { name: "Owner", value: `<@${ticket.owner_id}>`, inline: true },
               { name: "Closed by", value: `${interaction.user}`, inline: true },
-              { name: "Channel", value: `${interaction.channel}`, inline: true }
+              { name: "Channel", value: `<#${interaction.channelId}>`, inline: true }
             )
             .setTimestamp()
         );
