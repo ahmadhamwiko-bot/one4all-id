@@ -3,12 +3,17 @@ const {
   Client,
   GatewayIntentBits,
   EmbedBuilder,
-  PermissionsBitField
+  PermissionsBitField,
+  ChannelType,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 
 const Database = require("better-sqlite3");
 
 const token = process.env.DISCORD_TOKEN;
+const LOG_CHANNEL_ID = "1571861990278824066";
 
 if (!token) {
   console.error("Missing DISCORD_TOKEN secret!");
@@ -32,6 +37,22 @@ CREATE TABLE IF NOT EXISTS members (
 CREATE TABLE IF NOT EXISTS counters (
   guild_id TEXT PRIMARY KEY,
   last_id INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS ticket_staff_roles (
+  guild_id TEXT,
+  role_id TEXT,
+  PRIMARY KEY (guild_id, role_id)
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  channel_id TEXT PRIMARY KEY,
+  guild_id TEXT,
+  owner_id TEXT,
+  type TEXT,
+  claimed_by TEXT,
+  status TEXT DEFAULT 'open',
+  created_at INTEGER
 );
 `);
 
@@ -75,6 +96,180 @@ const client = new Client({
   ]
 });
 
+const ticketTypes = {
+  middleman: {
+    label: "Middleman Request",
+    emoji: "🤝"
+  },
+  trading: {
+    label: "Account Trading",
+    emoji: "💰"
+  },
+  scammer: {
+    label: "Scammer Report",
+    emoji: "🚨"
+  },
+  support: {
+    label: "General Support",
+    emoji: "🎧"
+  }
+};
+
+function isTicketStaff(interaction) {
+  if (interaction.memberPermissions?.has(
+    PermissionsBitField.Flags.ManageGuild
+  )) return true;
+
+  const roles = interaction.member?.roles?.cache;
+  if (!roles) return false;
+
+  const allowed = db.prepare(
+    "SELECT role_id FROM ticket_staff_roles WHERE guild_id = ?"
+  ).all(interaction.guildId);
+
+  return allowed.some(item => roles.has(item.role_id));
+}
+
+async function sendTicketLog(guild, embed) {
+  try {
+    const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
+
+    if (channel?.isTextBased()) {
+      await channel.send({ embeds: [embed] });
+    }
+  } catch (error) {
+    console.error("Ticket log error:", error);
+  }
+}
+
+async function createTicket(interaction, type) {
+  const guild = interaction.guild;
+  const user = interaction.user;
+  const info = ticketTypes[type];
+
+  if (!info) return;
+
+  const existing = db.prepare(`
+    SELECT channel_id FROM tickets
+    WHERE guild_id = ? AND owner_id = ? AND status = 'open'
+  `).get(guild.id, user.id);
+
+  if (existing) {
+    return interaction.reply({
+      content: `You already have an open ticket: <#${existing.channel_id}>`,
+      ephemeral: true
+    });
+  }
+
+  const staffRoles = db.prepare(
+    "SELECT role_id FROM ticket_staff_roles WHERE guild_id = ?"
+  ).all(guild.id);
+
+  const permissionOverwrites = [
+    {
+      id: guild.id,
+      deny: [PermissionsBitField.Flags.ViewChannel]
+    },
+    {
+      id: user.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.AttachFiles,
+        PermissionsBitField.Flags.EmbedLinks
+      ]
+    },
+    {
+      id: client.user.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.ManageChannels,
+        PermissionsBitField.Flags.ManageMessages
+      ]
+    }
+  ];
+
+  for (const role of staffRoles) {
+    if (guild.roles.cache.has(role.role_id)) {
+      permissionOverwrites.push({
+        id: role.role_id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ReadMessageHistory
+        ]
+      });
+    }
+  }
+
+  const channel = await guild.channels.create({
+    name: `${type}-${user.username}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .slice(0, 90),
+    type: ChannelType.GuildText,
+    permissionOverwrites
+  });
+
+  db.prepare(`
+    INSERT INTO tickets
+    (channel_id, guild_id, owner_id, type, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(channel.id, guild.id, user.id, type, Date.now());
+
+  const embed = new EmbedBuilder()
+    .setColor("#D4AF37")
+    .setTitle(`${info.emoji} ${info.label}`)
+    .setDescription(
+      `Welcome ${user}!\n\nPlease explain your request clearly. Our team will assist you soon.`
+    )
+    .addFields(
+      { name: "Member", value: user.tag, inline: true },
+      { name: "Status", value: "Open", inline: true }
+    )
+    .setFooter({ text: "One4All Support • 1FA" });
+
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticket:claim")
+      .setLabel("Claim")
+      .setEmoji("🙋")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("ticket:close")
+      .setLabel("Close")
+      .setEmoji("🔒")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  await channel.send({
+    content: `${user} | Ticket Staff`,
+    embeds: [embed],
+    components: [buttons],
+    allowedMentions: { users: [user.id] }
+  });
+
+  await sendTicketLog(guild,
+    new EmbedBuilder()
+      .setColor("#22C55E")
+      .setTitle("🎫 Ticket Opened")
+      .addFields(
+        { name: "Member", value: `${user}`, inline: true },
+        { name: "Type", value: info.label, inline: true },
+        { name: "Channel", value: `${channel}`, inline: true }
+      )
+      .setTimestamp()
+  );
+
+  return interaction.reply({
+    content: `Your ticket has been created: ${channel}`,
+    ephemeral: true
+  });
+}
+
 client.once("ready", () => {
   console.log(`${client.user.tag} is online!`);
 });
@@ -86,7 +281,8 @@ client.on("guildMemberAdd", member => {
 client.on("messageCreate", message => {
   if (!message.guild || message.author.bot) return;
 
-  const member = getMember(message.guild.id, message.author.id);
+  getMember(message.guild.id, message.author.id);
+
   const gained = Math.floor(Math.random() * 6) + 5;
 
   db.prepare(`
@@ -96,14 +292,237 @@ client.on("messageCreate", message => {
 });
 
 client.on("interactionCreate", async interaction => {
-  if (!interaction.isChatInputCommand()) return;
   if (!interaction.guild) return;
 
-  const guildId = interaction.guild.id;
-  const userId = interaction.user.id;
-  const command = interaction.commandName;
-
   try {
+    // Ticket buttons
+    if (interaction.isButton()) {
+      if (interaction.customId.startsWith("ticket:create:")) {
+        const type = interaction.customId.split(":")[2];
+        return await createTicket(interaction, type);
+      }
+
+      if (interaction.customId === "ticket:claim") {
+        if (!isTicketStaff(interaction)) {
+          return interaction.reply({
+            content: "You are not authorized to claim tickets.",
+            ephemeral: true
+          });
+        }
+
+        const ticket = db.prepare(`
+          SELECT * FROM tickets
+          WHERE channel_id = ? AND status = 'open'
+        `).get(interaction.channelId);
+
+        if (!ticket) {
+          return interaction.reply({
+            content: "This ticket is not open.",
+            ephemeral: true
+          });
+        }
+
+        if (ticket.claimed_by) {
+          return interaction.reply({
+            content: `This ticket is already claimed by <@${ticket.claimed_by}>.`,
+            ephemeral: true
+          });
+        }
+
+        db.prepare(`
+          UPDATE tickets SET claimed_by = ?
+          WHERE channel_id = ?
+        `).run(interaction.user.id, interaction.channelId);
+
+        await interaction.reply({
+          content: `🙋 This ticket has been claimed by ${interaction.user}.`
+        });
+
+        await sendTicketLog(interaction.guild,
+          new EmbedBuilder()
+            .setColor("#3B82F6")
+            .setTitle("🙋 Ticket Claimed")
+            .addFields(
+              { name: "Staff", value: `${interaction.user}`, inline: true },
+              { name: "Channel", value: `${interaction.channel}`, inline: true }
+            )
+            .setTimestamp()
+        );
+
+        return;
+      }
+
+      if (interaction.customId === "ticket:close") {
+        const ticket = db.prepare(`
+          SELECT * FROM tickets
+          WHERE channel_id = ? AND status = 'open'
+        `).get(interaction.channelId);
+
+        if (!ticket) {
+          return interaction.reply({
+            content: "This ticket is already closed or not registered.",
+            ephemeral: true
+          });
+        }
+
+        const isOwner = ticket.owner_id === interaction.user.id;
+
+        if (!isOwner && !isTicketStaff(interaction)) {
+          return interaction.reply({
+            content: "You cannot close this ticket.",
+            ephemeral: true
+          });
+        }
+
+        db.prepare(`
+          UPDATE tickets SET status = 'closed'
+          WHERE channel_id = ?
+        `).run(interaction.channelId);
+
+        await interaction.channel.permissionOverwrites.edit(
+          ticket.owner_id,
+          {
+            SendMessages: false
+          }
+        );
+
+        await interaction.channel.setName(
+          `closed-${interaction.channel.name}`.slice(0, 100)
+        );
+
+        await interaction.reply({
+          content: `🔒 Ticket closed by ${interaction.user}.`
+        });
+
+        await interaction.message.edit({ components: [] });
+
+        await sendTicketLog(interaction.guild,
+          new EmbedBuilder()
+            .setColor("#EF4444")
+            .setTitle("🔒 Ticket Closed")
+            .addFields(
+              { name: "Owner", value: `<@${ticket.owner_id}>`, inline: true },
+              { name: "Closed by", value: `${interaction.user}`, inline: true },
+              { name: "Channel", value: `${interaction.channel}`, inline: true }
+            )
+            .setTimestamp()
+        );
+
+        return;
+      }
+    }
+
+    if (!interaction.isChatInputCommand()) return;
+
+    const guildId = interaction.guild.id;
+    const userId = interaction.user.id;
+    const command = interaction.commandName;
+
+    // Ticket panel
+    if (command === "ticket-panel") {
+      const embed = new EmbedBuilder()
+        .setColor("#D4AF37")
+        .setTitle("🎫 ONE4ALL SUPPORT")
+        .setDescription(
+          "Welcome to One4All Support!\n\nChoose the type of ticket you want to open. Our team will help you as soon as possible."
+        )
+        .setFooter({ text: "One4All Community • 1FA" });
+
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("ticket:create:middleman")
+          .setLabel("Middleman")
+          .setEmoji("🤝")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId("ticket:create:trading")
+          .setLabel("Account Trading")
+          .setEmoji("💰")
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("ticket:create:scammer")
+          .setLabel("Scammer Report")
+          .setEmoji("🚨")
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId("ticket:create:support")
+          .setLabel("General Support")
+          .setEmoji("🎧")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      await interaction.channel.send({
+        embeds: [embed],
+        components: [row1, row2]
+      });
+
+      return interaction.reply({
+        content: "Ticket panel published successfully!",
+        ephemeral: true
+      });
+    }
+
+    // Ticket staff roles
+    if (command === "ticket-role") {
+      if (!interaction.memberPermissions.has(
+        PermissionsBitField.Flags.ManageGuild
+      )) {
+        return interaction.reply({
+          content: "You need Manage Server permission.",
+          ephemeral: true
+        });
+      }
+
+      const action = interaction.options.getSubcommand();
+
+      if (action === "add") {
+        const role = interaction.options.getRole("role");
+
+        db.prepare(`
+          INSERT OR IGNORE INTO ticket_staff_roles
+          (guild_id, role_id)
+          VALUES (?, ?)
+        `).run(guildId, role.id);
+
+        return interaction.reply({
+          content: `✅ ${role} can now manage tickets.`,
+          ephemeral: true
+        });
+      }
+
+      if (action === "remove") {
+        const role = interaction.options.getRole("role");
+
+        db.prepare(`
+          DELETE FROM ticket_staff_roles
+          WHERE guild_id = ? AND role_id = ?
+        `).run(guildId, role.id);
+
+        return interaction.reply({
+          content: `✅ ${role} has been removed from ticket staff.`,
+          ephemeral: true
+        });
+      }
+
+      if (action === "list") {
+        const roles = db.prepare(`
+          SELECT role_id FROM ticket_staff_roles
+          WHERE guild_id = ?
+        `).all(guildId);
+
+        return interaction.reply({
+          content: roles.length
+            ? roles.map(r => `<@&${r.role_id}>`).join("\n")
+            : "No ticket staff roles configured.",
+          ephemeral: true
+        });
+      }
+    }
+
+    // Existing One4All commands
     const member = getMember(guildId, userId);
 
     if (command === "id") {
@@ -163,9 +582,11 @@ client.on("interactionCreate", async interaction => {
           new EmbedBuilder()
             .setColor("#D4AF37")
             .setTitle("🏅 Your Achievements")
-            .setDescription(achievements.length
-              ? achievements.join("\n")
-              : "No achievements yet. Keep participating!")
+            .setDescription(
+              achievements.length
+                ? achievements.join("\n")
+                : "No achievements yet. Keep participating!"
+            )
         ]
       });
     }
@@ -214,11 +635,15 @@ client.on("interactionCreate", async interaction => {
         WHERE guild_id = ? AND user_id = ?
       `).run(now, guildId, userId);
 
-      return interaction.reply("🎁 You received **50 XP** as your daily reward!");
+      return interaction.reply(
+        "🎁 You received **50 XP** as your daily reward!"
+      );
     }
 
     if (command === "admin") {
-      if (!interaction.memberPermissions.has(PermissionsBitField.Flags.ManageGuild)) {
+      if (!interaction.memberPermissions.has(
+        PermissionsBitField.Flags.ManageGuild
+      )) {
         return interaction.reply({
           content: "⛔ You need Manage Server permission to use this command.",
           ephemeral: true
@@ -232,7 +657,9 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (command === "reputation-add") {
-      if (!interaction.memberPermissions.has(PermissionsBitField.Flags.ManageGuild)) {
+      if (!interaction.memberPermissions.has(
+        PermissionsBitField.Flags.ManageGuild
+      )) {
         return interaction.reply({
           content: "⛔ You need Manage Server permission.",
           ephemeral: true
@@ -268,17 +695,18 @@ client.on("interactionCreate", async interaction => {
       return interaction.followUp({
         content: "Something went wrong. Please try again.",
         ephemeral: true
-      });
+      }).catch(() => {});
     }
 
     return interaction.reply({
       content: "Something went wrong. Please try again.",
       ephemeral: true
-    });
+    }).catch(() => {});
   }
 });
-client.once('ready', () => {
-  const channelId = '1568597170779852810';
+
+client.once("ready", () => {
+  const channelId = "1568597170779852810";
 
   setInterval(async () => {
     try {
@@ -286,13 +714,14 @@ client.once('ready', () => {
 
       if (channel && channel.isTextBased()) {
         await channel.send({
-          content: '@everyone 📢 The chat needs you! Come say hi and keep One4All alive! ❤️🔥',
-          allowedMentions: { parse: ['everyone'] }
+          content: "@everyone 📢 The chat needs you! Come say hi and keep One4All alive! ❤️🔥",
+          allowedMentions: { parse: ["everyone"] }
         });
       }
     } catch (error) {
-      console.error('Chat revival error:', error);
+      console.error("Chat revival error:", error);
     }
   }, 3 * 60 * 60 * 1000);
 });
+
 client.login(token);
