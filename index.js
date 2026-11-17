@@ -17,8 +17,6 @@ const Database = require("better-sqlite3");
 const token = process.env.DISCORD_TOKEN;
 
 const LOG_CHANNEL_ID = "1571861990278824066";
-const REVIVAL_CHANNEL_ID = "1568597170779852810";
-const REVIVAL_INTERVAL = 90 * 60 * 1000;
 
 // ===========================================
 
@@ -139,8 +137,6 @@ const client = new Client({
     GatewayIntentBits.GuildMembers
   ]
 });
-
-let revivalTimer = null;
 
 // ================= TICKET TYPES =================
 
@@ -460,7 +456,7 @@ async function handleCommandCenter(interaction) {
       SELECT user_id, xp, reputation
       FROM members
       WHERE guild_id = ?
-      ORDER BY ${id === "cc:trending" ? "xp" : "xp"} DESC
+      ORDER BY xp DESC
       LIMIT 10
     `).all(guildId);
 
@@ -709,44 +705,10 @@ async function handleCommandCenter(interaction) {
   }
 }
 
-// ================= DEAD CHAT REVIVAL =================
-
-async function sendChatRevival() {
-  try {
-    const channel = await client.channels.fetch(REVIVAL_CHANNEL_ID);
-
-    if (!channel || !channel.isTextBased() || !channel.send) {
-      console.error("Chat Revival: Invalid text channel!");
-      return;
-    }
-
-    await channel.send({
-      content: "@everyone 📢 The chat needs you! Come say hi and keep One4All alive! ❤️🔥",
-      allowedMentions: { parse: ["everyone"] }
-    });
-
-    console.log(
-      `[CHAT REVIVAL] Message sent successfully at ${new Date().toLocaleString("en-GB", { timeZone: "Asia/Beirut" })}`
-    );
-  } catch (error) {
-    console.error("Chat revival error:", error);
-  }
-}
-
-function startChatRevival() {
-  if (revivalTimer) clearInterval(revivalTimer);
-
-  console.log("Chat Revival system started.");
-  console.log("Interval: Every 90 minutes.");
-
-  revivalTimer = setInterval(sendChatRevival, REVIVAL_INTERVAL);
-}
-
 // ================= BOT READY =================
 
 client.once("ready", () => {
   console.log(`${client.user.tag} is online!`);
-  startChatRevival();
 });
 
 // ================= NEW MEMBERS =================
