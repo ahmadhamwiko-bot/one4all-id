@@ -21,9 +21,9 @@ module.exports = function startDashboard(client, db) {
   const REDIRECT_URI = `${BASE_URL}/auth/callback`;
 
   const GUILD_ID = "1568590852723449959";
-  const ANNOUNCEMENT_CHANNEL_ID = "1572330796159864862";
 
-  const GOLD = "#D4AF37";
+  // Correct Announcements channel ID
+  const ANNOUNCEMENT_CHANNEL_ID = "1568642186579415130";
 
   if (!CLIENT_ID || !CLIENT_SECRET || !SESSION_SECRET) {
     console.error("[Dashboard] Missing Discord OAuth environment variables.");
@@ -168,7 +168,7 @@ module.exports = function startDashboard(client, db) {
         message.embeds?.map(embed => embed.description || "").join("\n") ||
         "";
 
-      const exists = tableColumns("dashboard_updates");
+      const columns = tableColumns("dashboard_updates");
 
       const values = {
         title,
@@ -180,14 +180,14 @@ module.exports = function startDashboard(client, db) {
       };
 
       const selected = Object.keys(values)
-        .filter(key => exists.includes(key));
+        .filter(key => columns.includes(key));
 
-      const columns = selected.map(key => `"${key}"`).join(",");
+      const columnNames = selected.map(key => `"${key}"`).join(",");
       const placeholders = selected.map(() => "?").join(",");
       const params = selected.map(key => values[key]);
 
       db.prepare(
-        `INSERT OR IGNORE INTO dashboard_updates (${columns})
+        `INSERT OR IGNORE INTO dashboard_updates (${columnNames})
          VALUES (${placeholders})`
       ).run(...params);
 
@@ -248,7 +248,9 @@ module.exports = function startDashboard(client, db) {
   // ================= OAUTH =================
 
   app.get("/auth/login", (req, res) => {
-    if (!CLIENT_ID) return res.status(500).send("Discord Client ID missing.");
+    if (!CLIENT_ID) {
+      return res.status(500).send("Discord Client ID missing.");
+    }
 
     const state = crypto.randomBytes(24).toString("hex");
     req.session.oauthState = state;
@@ -307,7 +309,10 @@ module.exports = function startDashboard(client, db) {
 
       res.redirect("/");
     } catch (error) {
-      console.error("[Dashboard] OAuth error:", error.response?.data || error.message);
+      console.error(
+        "[Dashboard] OAuth error:",
+        error.response?.data || error.message
+      );
       res.status(500).send("Discord login failed. Please try again.");
     }
   });
@@ -351,6 +356,7 @@ module.exports = function startDashboard(client, db) {
   app.get("/api/dashboard", requireLogin, async (req, res) => {
     try {
       const guild = await client.guilds.fetch(GUILD_ID);
+
       await guild.members.fetch({ withPresences: true }).catch(() => null);
 
       const online = guild.members.cache.filter(member =>
@@ -425,7 +431,9 @@ module.exports = function startDashboard(client, db) {
       });
     } catch (error) {
       console.error("[Dashboard] Stats error:", error);
-      res.status(500).json({ error: "Could not load dashboard statistics." });
+      res.status(500).json({
+        error: "Could not load dashboard statistics."
+      });
     }
   });
 
@@ -467,12 +475,15 @@ module.exports = function startDashboard(client, db) {
         .setColor(0xD4AF37)
         .setTitle(title)
         .setDescription(content)
-        .setFooter({ text: "One4All • Official Server Updates" })
+        .setFooter({
+          text: "One4All • Official Server Updates"
+        })
         .setTimestamp();
 
       const message = await channel.send({ embeds: [embed] });
 
       const columns = tableColumns("dashboard_updates");
+
       const values = {
         title,
         content,
@@ -494,7 +505,9 @@ module.exports = function startDashboard(client, db) {
       res.json({ success: true });
     } catch (error) {
       console.error("[Dashboard] Publish error:", error);
-      res.status(500).json({ error: "Could not publish update." });
+      res.status(500).json({
+        error: "Could not publish update."
+      });
     }
   });
 
@@ -539,8 +552,8 @@ textarea{min-height:130px;resize:vertical}
 .update h3{color:#e0bb50;margin:0 0 8px}
 .muted{color:#999;font-size:13px}
 .status{color:#d4af37}
-footer{text-align:center;color:#666;padding:30px}
 #notice{margin:12px 0;color:#d4af37}
+footer{text-align:center;color:#666;padding:30px}
 </style>
 </head>
 <body>
