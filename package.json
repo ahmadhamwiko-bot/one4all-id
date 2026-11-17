@@ -2,7 +2,7 @@
 {
   "name": "one4all-id",
   "version": "1.0.0",
-  "description": "Official One4All Discord ID Bot",
+  "description": "Official One4All Discord Bot and Dashboard",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "discord.js": "^14.25.1",
-    "better-sqlite3": "^12.4.1"
+    "better-sqlite3": "^12.4.1",
+    "express": "^4.21.2"
   }
 }
