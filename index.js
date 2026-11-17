@@ -1,4 +1,3 @@
-
 const {
   Client,
   GatewayIntentBits,
@@ -15,7 +14,6 @@ const Database = require("better-sqlite3");
 // ================= CONFIG =================
 
 const token = process.env.DISCORD_TOKEN;
-
 const LOG_CHANNEL_ID = "1571861990278824066";
 
 // ===========================================
@@ -760,6 +758,8 @@ client.on("interactionCreate", async interaction => {
         return await handleCommandCenter(interaction);
       }
 
+      // ================= CLAIM TICKET =================
+
       if (interaction.customId === "ticket:claim") {
         if (!isTicketStaff(interaction)) {
           return interaction.reply({
@@ -813,6 +813,8 @@ client.on("interactionCreate", async interaction => {
         return;
       }
 
+      // ================= CLOSE TICKET =================
+
       if (interaction.customId === "ticket:close") {
         const ticket = db.prepare(`
           SELECT * FROM tickets
@@ -839,26 +841,43 @@ client.on("interactionCreate", async interaction => {
 
         const oldName = interaction.channel.name;
 
-        await interaction.channel.permissionOverwrites.edit(
-          ticket.owner_id,
-          { SendMessages: false }
+        // Remove the owner's personal permission overwrite.
+        // @everyone is already denied ViewChannel.
+        // Configured ticket staff roles keep their ViewChannel permission.
+        await interaction.channel.permissionOverwrites.delete(
+          ticket.owner_id
+        ).catch(error => {
+          console.error("Ticket owner permission removal error:", error);
+        });
+
+        // Rename ticket
+        await interaction.channel.setName(
+          `closed-${oldName}`.slice(0, 100)
         );
 
-        await interaction.channel.setName(`closed-${oldName}`.slice(0, 100));
-
+        // Update database
         db.prepare(`
           UPDATE tickets SET status = 'closed'
           WHERE channel_id = ?
         `).run(interaction.channelId);
 
-        logEvent(interaction.guildId, "Ticket Closed", interaction.user.tag);
+        logEvent(
+          interaction.guildId,
+          "Ticket Closed",
+          interaction.user.tag
+        );
 
-        await interaction.message.edit({ components: [] }).catch(() => {});
-
-        await interaction.channel.send({
-          content: `🔒 Ticket closed by ${interaction.user}.`
+        // Remove ticket buttons
+        await interaction.message.edit({
+          components: []
         }).catch(() => {});
 
+        // Notify staff inside the channel
+        await interaction.channel.send({
+          content: `🔒 Ticket closed by ${interaction.user}.\nThis ticket is now hidden from its owner and regular members. Staff can still access it.`
+        }).catch(() => {});
+
+        // Send ticket log
         await sendTicketLog(
           interaction.guild,
           new EmbedBuilder()
