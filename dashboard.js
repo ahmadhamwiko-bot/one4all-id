@@ -1,425 +1,698 @@
+
 const express = require("express");
 const session = require("express-session");
 const axios = require("axios");
-const Database = require("better-sqlite3");
-const path = require("path");
+const { EmbedBuilder, PermissionsBitField } = require("discord.js");
 
-const app = express();
-const db = new Database("one4all.db");
-
-const PORT = process.env.SERVER_PORT || 3000;
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const GUILD_ID = "1568590852723449959";
 const ANNOUNCEMENTS_CHANNEL_ID = "1572330796159864862";
 
-const REDIRECT_URI =
-  "https://cgypv1qwl5.apps.bot-hosting.cloud/auth/callback";
+module.exports = function startDashboard(client, db) {
+  const app = express();
 
-const GOLD = "#D4AF37";
+  const PORT = process.env.SERVER_PORT || 3000;
+  const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+  const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+  const SESSION_SECRET =
+    process.env.DASHBOARD_SESSION_SECRET || CLIENT_SECRET;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.use(session({
-  secret: process.env.DASHBOARD_SESSION_SECRET || CLIENT_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: true,
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 24 * 60 * 60 * 1000
+  if (!CLIENT_ID || !CLIENT_SECRET || !SESSION_SECRET) {
+    console.error("Dashboard: Missing Discord OAuth or session secrets.");
+    return;
   }
-}));
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS dashboard_updates (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT NOT NULL,
-  source_message_id TEXT UNIQUE,
-  author_id TEXT,
-  author_name TEXT,
-  title TEXT,
-  content TEXT,
-  attachments TEXT DEFAULT '[]',
-  source TEXT DEFAULT 'manual',
-  created_at INTEGER NOT NULL
-);
-`);
+  app.set("trust proxy", 1);
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: true }));
 
-function requireLogin(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ error: "Login required" });
-  }
-  next();
-}
-
-function requireStaff(req, res, next) {
-  if (!req.session.user?.staff) {
-    return res.status(403).json({ error: "Staff access only" });
-  }
-  next();
-}
-
-app.get("/auth/login", (req, res) => {
-  const url = new URL("https://discord.com/oauth2/authorize");
-
-  url.searchParams.set("client_id", CLIENT_ID);
-  url.searchParams.set("redirect_uri", REDIRECT_URI);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "identify guilds.members.read");
-
-  res.redirect(url.toString());
-});
-
-app.get("/auth/callback", async (req, res) => {
-  try {
-    const tokenResponse = await axios.post(
-      "https://discord.com/api/oauth2/token",
-      new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        grant_type: "authorization_code",
-        code: req.query.code,
-        redirect_uri: REDIRECT_URI
-      }),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        }
+  app.use(
+    session({
+      name: "one4all.sid",
+      secret: SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000
       }
-    );
-
-    const accessToken = tokenResponse.data.access_token;
-
-    const userResponse = await axios.get(
-      "https://discord.com/api/users/@me",
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
-      }
-    );
-
-    const memberResponse = await axios.get(
-      `https://discord.com/api/users/@me/guilds/${GUILD_ID}/member`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
-      }
-    );
-
-    const user = userResponse.data;
-    const roles = memberResponse.data.roles || [];
-
-    req.session.user = {
-      id: user.id,
-      username: user.username,
-      avatar: user.avatar,
-      staff: roles.length > 0
-    };
-
-    res.redirect("/");
-  } catch (error) {
-    console.error("Discord login error:", error.response?.data || error.message);
-    res.status(401).send("Discord login failed. Please try again.");
-  }
-});
-
-app.get("/api/me", (req, res) => {
-  res.json({
-    user: req.session.user || null
-  });
-});
-
-app.get("/api/updates", (req, res) => {
-  const updates = db.prepare(`
-    SELECT * FROM dashboard_updates
-    WHERE guild_id=?
-    ORDER BY created_at DESC
-    LIMIT 100
-  `).all(GUILD_ID);
-
-  res.json(updates.map(update => ({
-    ...update,
-    attachments: JSON.parse(update.attachments || "[]")
-  })));
-});
-
-app.post("/api/updates", requireLogin, requireStaff, (req, res) => {
-  const title = String(req.body.title || "").trim().slice(0, 150);
-  const content = String(req.body.content || "").trim().slice(0, 4000);
-
-  if (!title || !content) {
-    return res.status(400).json({
-      error: "Title and content are required"
-    });
-  }
-
-  db.prepare(`
-    INSERT INTO dashboard_updates
-    (guild_id, author_id, author_name, title, content, source, created_at)
-    VALUES (?, ?, ?, ?, ?, 'manual', ?)
-  `).run(
-    GUILD_ID,
-    req.session.user.id,
-    req.session.user.username,
-    title,
-    content,
-    Date.now()
+    })
   );
 
-  res.json({ success: true });
-});
+  const BASE_URL = "https://cgypv1qwl5.apps.bot-hosting.cloud";
+  const REDIRECT_URI = `${BASE_URL}/auth/callback`;
 
-app.post("/auth/logout", (req, res) => {
-  req.session.destroy(() => res.json({ success: true }));
-});
+  // Create the dashboard table without touching existing tables.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_message_id TEXT UNIQUE,
+      author_id TEXT,
+      author_name TEXT,
+      title TEXT,
+      content TEXT,
+      attachments TEXT DEFAULT '[]',
+      source TEXT DEFAULT 'manual',
+      created_at INTEGER
+    )
+  `);
 
-app.get("/", (req, res) => {
-  res.send(`
-<!DOCTYPE html>
+  function getStaffRoleIds() {
+    try {
+      const columns = db.prepare(
+        "PRAGMA table_info(ticket_staff_roles)"
+      ).all();
+
+      if (!columns.length) return [];
+
+      const names = columns.map(c => c.name);
+      const roleColumn = names.find(n =>
+        ["role_id", "roleId", "staff_role_id", "role"].includes(n)
+      );
+
+      if (!roleColumn) {
+        console.error(
+          "Dashboard: Could not identify the role ID column in ticket_staff_roles."
+        );
+        return [];
+      }
+
+      const guildColumn = names.find(n =>
+        ["guild_id", "guildId", "server_id"].includes(n)
+      );
+
+      let rows;
+
+      if (guildColumn) {
+        rows = db.prepare(
+          `SELECT "${roleColumn}" AS role_id
+           FROM ticket_staff_roles
+           WHERE "${guildColumn}" = ?`
+        ).all(GUILD_ID);
+      } else {
+        rows = db.prepare(
+          `SELECT "${roleColumn}" AS role_id FROM ticket_staff_roles`
+        ).all();
+      }
+
+      return rows.map(row => String(row.role_id));
+    } catch (error) {
+      console.error("Dashboard staff roles error:", error.message);
+      return [];
+    }
+  }
+
+  async function checkStaff(userId) {
+    try {
+      const guild = await client.guilds.fetch(GUILD_ID);
+      const member = await guild.members.fetch(userId);
+
+      if (
+        member.permissions.has(
+          PermissionsBitField.Flags.ManageGuild
+        )
+      ) {
+        return true;
+      }
+
+      const staffRoles = getStaffRoleIds();
+
+      return member.roles.cache.some(role =>
+        staffRoles.includes(role.id)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function requireLogin(req, res, next) {
+    if (!req.session.user) {
+      return res.status(401).json({
+        error: "Please log in with Discord first."
+      });
+    }
+
+    next();
+  }
+
+  function requireStaff(req, res, next) {
+    if (!req.session.user || !req.session.user.staff) {
+      return res.status(403).json({
+        error: "Staff access required."
+      });
+    }
+
+    next();
+  }
+
+  function makeTitle(content) {
+    const firstLine = String(content || "")
+      .split("\n")
+      .find(line => line.trim());
+
+    return (firstLine || "Server Announcement").slice(0, 100);
+  }
+
+  function getAttachments(message) {
+    return [...message.attachments.values()].map(file => ({
+      url: file.url,
+      name: file.name || "Attachment",
+      contentType: file.contentType || ""
+    }));
+  }
+
+  function saveDiscordAnnouncement(message) {
+    if (!message || !message.guild) return;
+    if (message.guild.id !== GUILD_ID) return;
+    if (message.channel.id !== ANNOUNCEMENTS_CHANNEL_ID) return;
+    if (message.author?.bot) return;
+
+    const content = message.content || "";
+    const attachments = getAttachments(message);
+
+    if (!content.trim() && attachments.length === 0) return;
+
+    db.prepare(`
+      INSERT INTO dashboard_updates (
+        source_message_id,
+        author_id,
+        author_name,
+        title,
+        content,
+        attachments,
+        source,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'discord', ?)
+      ON CONFLICT(source_message_id) DO UPDATE SET
+        author_name = excluded.author_name,
+        title = excluded.title,
+        content = excluded.content,
+        attachments = excluded.attachments
+    `).run(
+      message.id,
+      message.author.id,
+      message.author.username,
+      makeTitle(content),
+      content,
+      JSON.stringify(attachments),
+      message.createdTimestamp
+    );
+  }
+
+  // Automatically synchronize new announcements and edits.
+  client.on("messageCreate", message => {
+    try {
+      saveDiscordAnnouncement(message);
+    } catch (error) {
+      console.error("Announcement sync error:", error.message);
+    }
+  });
+
+  client.on("messageUpdate", async (oldMessage, newMessage) => {
+    try {
+      if (newMessage.partial) {
+        newMessage = await newMessage.fetch();
+      }
+      saveDiscordAnnouncement(newMessage);
+    } catch (error) {
+      console.error("Announcement edit sync error:", error.message);
+    }
+  });
+
+  // Import the latest 50 existing announcements on startup.
+  async function backfillAnnouncements() {
+    try {
+      const channel = await client.channels.fetch(
+        ANNOUNCEMENTS_CHANNEL_ID
+      );
+
+      if (!channel || !channel.isTextBased()) {
+        console.error("Dashboard: Announcement channel not found.");
+        return;
+      }
+
+      const messages = await channel.messages.fetch({ limit: 50 });
+
+      for (const message of messages.values()) {
+        saveDiscordAnnouncement(message);
+      }
+
+      console.log(
+        `Dashboard: Synced ${messages.size} announcement messages.`
+      );
+    } catch (error) {
+      console.error("Dashboard backfill error:", error.message);
+    }
+  }
+
+  if (client.isReady()) {
+    backfillAnnouncements();
+  } else {
+    client.once("ready", backfillAnnouncements);
+  }
+
+  // Discord OAuth login.
+  app.get("/auth/login", (req, res) => {
+    const url = new URL("https://discord.com/oauth2/authorize");
+
+    url.searchParams.set("client_id", CLIENT_ID);
+    url.searchParams.set("redirect_uri", REDIRECT_URI);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", "identify");
+
+    res.redirect(url.toString());
+  });
+
+  app.get("/auth/callback", async (req, res) => {
+    try {
+      const code = req.query.code;
+
+      if (!code) {
+        return res.status(400).send("Discord authorization code missing.");
+      }
+
+      const tokenResponse = await axios.post(
+        "https://discord.com/api/oauth2/token",
+        new URLSearchParams({
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          grant_type: "authorization_code",
+          code: String(code),
+          redirect_uri: REDIRECT_URI
+        }),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          }
+        }
+      );
+
+      const accessToken = tokenResponse.data.access_token;
+
+      const userResponse = await axios.get(
+        "https://discord.com/api/users/@me",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
+      );
+
+      const user = userResponse.data;
+
+      // Confirm the user is actually a member of the One4All server
+      // and check their real Discord permissions and configured staff roles.
+      const staff = await checkStaff(user.id);
+
+      req.session.user = {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar,
+        staff
+      };
+
+      req.session.save(error => {
+        if (error) {
+          console.error("Session save error:", error.message);
+          return res.status(500).send("Could not create your session.");
+        }
+
+        res.redirect("/");
+      });
+    } catch (error) {
+      console.error(
+        "Discord login error:",
+        error.response?.data || error.message
+      );
+
+      res.status(500).send(
+        "Discord login failed. Please try again."
+      );
+    }
+  });
+
+  app.get("/auth/logout", (req, res) => {
+    req.session.destroy(() => {
+      res.redirect("/");
+    });
+  });
+
+  // Current user.
+  app.get("/api/me", (req, res) => {
+    res.json({
+      loggedIn: !!req.session.user,
+      user: req.session.user || null
+    });
+  });
+
+  // Public updates feed.
+  app.get("/api/updates", (req, res) => {
+    try {
+      const updates = db.prepare(`
+        SELECT *
+        FROM dashboard_updates
+        ORDER BY created_at DESC
+        LIMIT 100
+      `).all();
+
+      res.json(updates.map(update => ({
+        ...update,
+        attachments: (() => {
+          try {
+            return JSON.parse(update.attachments || "[]");
+          } catch {
+            return [];
+          }
+        })()
+      })));
+    } catch (error) {
+      console.error("Updates fetch error:", error.message);
+      res.status(500).json({ error: "Could not load updates." });
+    }
+  });
+
+  // Staff-only manual publishing.
+  app.post(
+    "/api/updates",
+    requireLogin,
+    requireStaff,
+    async (req, res) => {
+      try {
+        const title = String(req.body.title || "").trim().slice(0, 100);
+        const content = String(req.body.content || "").trim();
+
+        if (!content) {
+          return res.status(400).json({
+            error: "Announcement content is required."
+          });
+        }
+
+        const channel = await client.channels.fetch(
+          ANNOUNCEMENTS_CHANNEL_ID
+        );
+
+        if (!channel || !channel.isTextBased()) {
+          return res.status(500).json({
+            error: "Announcement channel is unavailable."
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0xD4AF37)
+          .setTitle(title || "One4All Server Update")
+          .setDescription(content.slice(0, 4000))
+          .setFooter({ text: "One4All • Official Server Update" })
+          .setTimestamp();
+
+        const sentMessage = await channel.send({
+          embeds: [embed]
+        });
+
+        db.prepare(`
+          INSERT INTO dashboard_updates (
+            source_message_id,
+            author_id,
+            author_name,
+            title,
+            content,
+            attachments,
+            source,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?, '[]', 'manual', ?)
+        `).run(
+          `manual-${sentMessage.id}`,
+          req.session.user.id,
+          req.session.user.username,
+          title || "One4All Server Update",
+          content,
+          Date.now()
+        );
+
+        res.json({
+          success: true,
+          message: "Update published successfully."
+        });
+      } catch (error) {
+        console.error("Manual publish error:", error.message);
+        res.status(500).json({
+          error: "Could not publish the update."
+        });
+      }
+    }
+  );
+
+  // Dashboard page.
+  app.get("/", (req, res) => {
+    res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>One4All Dashboard</title>
 <style>
 *{box-sizing:border-box}
 body{
-margin:0;
-background:#090909;
-color:#f5f5f5;
-font-family:Arial,sans-serif
+  margin:0;
+  background:#090909;
+  color:#f5f5f5;
+  font-family:Arial,sans-serif;
 }
 header{
-padding:24px;
-border-bottom:1px solid #3b3014;
-background:#111;
-display:flex;
-justify-content:space-between;
-align-items:center;
-flex-wrap:wrap;
-gap:15px
+  padding:22px 18px;
+  border-bottom:1px solid #6e541e;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:12px;
 }
 .logo{
-color:${GOLD};
-font-size:25px;
-font-weight:bold;
-letter-spacing:3px
+  color:#d4af37;
+  font-size:25px;
+  font-weight:900;
+  letter-spacing:2px;
 }
-nav{
-display:flex;
-gap:10px;
-flex-wrap:wrap
-}
+a,button{cursor:pointer}
+a{color:#d4af37;text-decoration:none}
 button{
-background:#171717;
-border:1px solid ${GOLD};
-color:${GOLD};
-padding:11px 17px;
-border-radius:8px;
-cursor:pointer;
-font-weight:bold
+  background:#d4af37;
+  color:#111;
+  border:0;
+  padding:12px 18px;
+  border-radius:7px;
+  font-weight:bold;
 }
-button:hover{background:${GOLD};color:#000}
 main{
-max-width:1100px;
-margin:auto;
-padding:25px 16px
+  max-width:950px;
+  margin:30px auto;
+  padding:0 16px;
 }
-.hero{
-padding:35px 25px;
-border:1px solid #57451b;
-border-radius:15px;
-background:linear-gradient(135deg,#191919,#090909);
-margin-bottom:25px
-}
-h1{color:${GOLD};margin-top:0}
-h2{color:${GOLD}}
-.muted{color:#aaa;line-height:1.6}
-.section{
-background:#111;
-border:1px solid #302817;
-border-radius:12px;
-padding:22px;
-margin-bottom:20px
+h1{color:#d4af37}
+.subtitle{color:#aaa}
+.panel{
+  background:#151515;
+  border:1px solid #493b1d;
+  border-radius:12px;
+  padding:20px;
+  margin:22px 0;
 }
 .update{
-padding:18px 0;
-border-bottom:1px solid #302817
+  background:#111;
+  border:1px solid #37302a;
+  border-left:3px solid #d4af37;
+  border-radius:9px;
+  padding:17px;
+  margin:15px 0;
+  overflow-wrap:anywhere;
 }
-.update:last-child{border:0}
-.update h3{color:${GOLD};margin:0 0 10px}
-.update p{white-space:pre-wrap;line-height:1.6;color:#ddd}
-.meta{color:#888;font-size:12px}
+.update h3{color:#e2c15d;margin-top:0}
+.update p{white-space:pre-wrap;line-height:1.6}
+.meta{color:#888;font-size:12px;margin-top:12px}
+.update img{
+  max-width:100%;
+  max-height:350px;
+  border-radius:8px;
+  margin-top:12px;
+}
 input,textarea{
-width:100%;
-background:#080808;
-color:white;
-border:1px solid #57451b;
-border-radius:8px;
-padding:13px;
-margin:8px 0 15px
+  width:100%;
+  background:#090909;
+  border:1px solid #55451f;
+  color:white;
+  border-radius:7px;
+  padding:13px;
+  margin:8px 0 14px;
+  font:inherit;
 }
 textarea{min-height:130px;resize:vertical}
 .hidden{display:none}
-a{color:${GOLD}}
-footer{text-align:center;padding:25px;color:#777}
-img.attachment{max-width:100%;max-height:400px;border-radius:10px;margin-top:10px}
+.gold{color:#d4af37}
+footer{text-align:center;color:#666;padding:30px}
 </style>
 </head>
 <body>
 <header>
-<div class="logo">ONE4ALL • 1FA</div>
-<nav>
-<button onclick="showSection('home')">Home</button>
-<button onclick="showSection('updates')">Server Updates</button>
-<button id="loginButton" onclick="location.href='/auth/login'">Discord Login</button>
-<button id="logoutButton" class="hidden" onclick="logout()">Logout</button>
-</nav>
+  <div class="logo">ONE4ALL <span style="font-size:13px">1FA</span></div>
+  <div id="account">
+    <a href="/auth/login"><button>Login with Discord</button></a>
+  </div>
 </header>
+
 <main>
-<section id="home">
-<div class="hero">
-<h1>ONE4ALL COMMUNITY</h1>
-<p class="muted">Stronger Together. One community, one destination.</p>
-<button onclick="showSection('updates')">View Server Updates</button>
-</div>
-<div class="section">
-<h2>Welcome to One4All</h2>
-<p class="muted">Your central place for community news, announcements and updates.</p>
-</div>
-</section>
+  <h1>Server Updates</h1>
+  <p class="subtitle">Official announcements and news from the One4All community.</p>
 
-<section id="updates" class="hidden">
-<div class="section">
-<h1>📢 Server Updates</h1>
-<p class="muted">All official One4All announcements in one place.</p>
-<div id="updatesList">Loading updates...</div>
-</div>
-</section>
+  <section id="admin" class="panel hidden">
+    <h2 class="gold">Staff Publishing</h2>
+    <form id="publishForm">
+      <label>Update title</label>
+      <input id="title" maxlength="100" placeholder="Announcement title">
+      <label>Announcement content</label>
+      <textarea id="content" required placeholder="Write your update..."></textarea>
+      <button type="submit">Publish Update</button>
+      <p id="publishStatus"></p>
+    </form>
+  </section>
 
-<section id="admin" class="hidden">
-<div class="section">
-<h1>Publish Update</h1>
-<form id="publishForm">
-<label>Title</label>
-<input id="title" maxlength="150" required placeholder="Update title">
-<label>Announcement</label>
-<textarea id="content" maxlength="4000" required placeholder="Write your announcement..."></textarea>
-<button type="submit">Publish Update</button>
-</form>
-<p id="publishStatus" class="muted"></p>
-</div>
-</section>
+  <section class="panel">
+    <div id="updates">Loading updates...</div>
+  </section>
 </main>
-<footer>ONE4ALL • 1FA COMMUNITY</footer>
+
+<footer>ONE4ALL • 1FA</footer>
 
 <script>
-let currentUser=null;
+const updatesBox = document.getElementById("updates");
 
-function showSection(section){
-document.querySelectorAll("main section").forEach(s=>s.classList.add("hidden"));
-document.getElementById(section).classList.remove("hidden");
-if(section==="updates")loadUpdates();
+function escapeText(value) {
+  return String(value || "");
 }
 
-async function loadMe(){
-try{
-const response=await fetch("/api/me");
-const data=await response.json();
-currentUser=data.user;
-if(currentUser){
-document.getElementById("loginButton").classList.add("hidden");
-document.getElementById("logoutButton").classList.remove("hidden");
-if(currentUser.staff){
-const button=document.createElement("button");
-button.textContent="Admin";
-button.onclick=()=>showSection("admin");
-document.querySelector("nav").appendChild(button);
-}
-}
-}catch(e){console.error(e)}
+function renderUpdates(items) {
+  updatesBox.replaceChildren();
+
+  if (!items.length) {
+    updatesBox.textContent = "No updates published yet.";
+    return;
+  }
+
+  for (const item of items) {
+    const article = document.createElement("article");
+    article.className = "update";
+
+    const heading = document.createElement("h3");
+    heading.textContent = escapeText(item.title);
+
+    const paragraph = document.createElement("p");
+    paragraph.textContent = escapeText(item.content);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const date = new Date(Number(item.created_at));
+    meta.textContent =
+      "By " + escapeText(item.author_name || "One4All") +
+      " • " + (isNaN(date.getTime()) ? "" : date.toLocaleString());
+
+    article.append(heading, paragraph);
+
+    for (const file of (item.attachments || [])) {
+      const link = document.createElement("a");
+      link.href = file.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "📎 " + escapeText(file.name);
+      article.append(link);
+
+      if (
+        file.contentType &&
+        file.contentType.startsWith("image/")
+      ) {
+        const image = document.createElement("img");
+        image.src = file.url;
+        image.alt = escapeText(file.name);
+        image.loading = "lazy";
+        article.append(image);
+      }
+    }
+
+    article.append(meta);
+    updatesBox.append(article);
+  }
 }
 
-async function loadUpdates(){
-const list=document.getElementById("updatesList");
-list.textContent="Loading...";
-try{
-const response=await fetch("/api/updates");
-const updates=await response.json();
-list.innerHTML="";
-if(!updates.length){
-list.textContent="No updates published yet.";
-return;
+async function loadUpdates() {
+  try {
+    const response = await fetch("/api/updates");
+    if (!response.ok) throw new Error("Failed to load updates");
+    renderUpdates(await response.json());
+  } catch {
+    updatesBox.textContent = "Could not load updates. Please refresh.";
+  }
 }
-updates.forEach(update=>{
-const article=document.createElement("article");
-article.className="update";
-const title=document.createElement("h3");
-title.textContent=update.title||"One4All Update";
-const content=document.createElement("p");
-content.textContent=update.content||"";
-const meta=document.createElement("div");
-meta.className="meta";
-meta.textContent=(update.source==="discord"?"Discord Announcement":"Published by "+update.author_name)+" • "+new Date(update.created_at).toLocaleString();
-article.append(title,content,meta);
-(update.attachments||[]).forEach(file=>{
-if(file.contentType?.startsWith("image/")){
-const img=document.createElement("img");
-img.className="attachment";
-img.src=file.url;
-img.alt=file.name||"Announcement image";
-article.appendChild(img);
-}else{
-const link=document.createElement("a");
-link.href=file.url;
-link.target="_blank";
-link.rel="noopener";
-link.textContent="📎 "+(file.name||"Attachment");
-article.appendChild(link);
+
+async function loadAccount() {
+  const response = await fetch("/api/me");
+  const data = await response.json();
+  const account = document.getElementById("account");
+
+  if (!data.loggedIn) return;
+
+  account.replaceChildren();
+
+  const name = document.createElement("span");
+  name.textContent = data.user.username + " ";
+
+  const logout = document.createElement("a");
+  logout.href = "/auth/logout";
+  logout.textContent = "Logout";
+
+  account.append(name, logout);
+
+  if (data.user.staff) {
+    document.getElementById("admin").classList.remove("hidden");
+  }
 }
+
+document.getElementById("publishForm").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const status = document.getElementById("publishStatus");
+  status.textContent = "Publishing...";
+
+  try {
+    const response = await fetch("/api/updates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: document.getElementById("title").value,
+        content: document.getElementById("content").value
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) throw new Error(result.error || "Publishing failed");
+
+    status.textContent = "Published successfully!";
+    document.getElementById("publishForm").reset();
+    await loadUpdates();
+  } catch (error) {
+    status.textContent = error.message;
+  }
 });
-list.appendChild(article);
-});
-}catch(e){list.textContent="Could not load updates."}
-}
 
-document.getElementById("publishForm").addEventListener("submit",async event=>{
-event.preventDefault();
-const status=document.getElementById("publishStatus");
-status.textContent="Publishing...";
-try{
-const response=await fetch("/api/updates",{
-method:"POST",
-headers:{"Content-Type":"application/json"},
-body:JSON.stringify({
-title:document.getElementById("title").value,
-content:document.getElementById("content").value
-})
-});
-const result=await response.json();
-if(!response.ok)throw new Error(result.error||"Publish failed");
-status.textContent="Update published successfully.";
-event.target.reset();
-}catch(error){status.textContent=error.message}
-});
-
-async function logout(){
-await fetch("/auth/logout",{method:"POST"});
-location.reload();
-}
-
-loadMe();
+loadAccount();
+loadUpdates();
 </script>
 </body>
-</html>
-  `);
-});
+</html>`);
+  });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("One4All Dashboard running on port " + PORT);
-});
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`One4All Dashboard listening on port ${PORT}`);
+  });
+};
