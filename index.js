@@ -1,3 +1,4 @@
+
 const {
   Client,
   GatewayIntentBits,
@@ -12,10 +13,12 @@ const {
 const Database = require("better-sqlite3");
 
 // ================= CONFIG =================
+
 const token = process.env.DISCORD_TOKEN;
 const LOG_CHANNEL_ID = "1571861990278824066";
 const PANEL_REFRESH_MS = 60 * 1000;
 const GOLD = 0xD4AF37;
+
 // ==========================================
 
 if (!token) {
@@ -28,38 +31,61 @@ db.pragma("journal_mode = WAL");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS members (
-  guild_id TEXT, user_id TEXT, member_id INTEGER,
-  xp INTEGER DEFAULT 0, reputation INTEGER DEFAULT 0,
+  guild_id TEXT,
+  user_id TEXT,
+  member_id INTEGER,
+  xp INTEGER DEFAULT 0,
+  reputation INTEGER DEFAULT 0,
   last_daily INTEGER DEFAULT 0,
   PRIMARY KEY (guild_id, user_id),
   UNIQUE (guild_id, member_id)
 );
+
 CREATE TABLE IF NOT EXISTS counters (
-  guild_id TEXT PRIMARY KEY, last_id INTEGER DEFAULT 0
+  guild_id TEXT PRIMARY KEY,
+  last_id INTEGER DEFAULT 0
 );
+
 CREATE TABLE IF NOT EXISTS ticket_staff_roles (
-  guild_id TEXT, role_id TEXT,
+  guild_id TEXT,
+  role_id TEXT,
   PRIMARY KEY (guild_id, role_id)
 );
+
 CREATE TABLE IF NOT EXISTS tickets (
-  channel_id TEXT PRIMARY KEY, guild_id TEXT,
-  owner_id TEXT, type TEXT, claimed_by TEXT,
-  status TEXT DEFAULT 'open', created_at INTEGER
+  channel_id TEXT PRIMARY KEY,
+  guild_id TEXT,
+  owner_id TEXT,
+  type TEXT,
+  claimed_by TEXT,
+  status TEXT DEFAULT 'open',
+  created_at INTEGER
 );
+
 CREATE TABLE IF NOT EXISTS command_center (
-  guild_id TEXT PRIMARY KEY, goals TEXT DEFAULT '[]',
+  guild_id TEXT PRIMARY KEY,
+  goals TEXT DEFAULT '[]',
   news TEXT DEFAULT 'No announcements yet.',
-  awards TEXT DEFAULT '[]', spotlight_user TEXT
+  awards TEXT DEFAULT '[]',
+  spotlight_user TEXT
 );
+
 CREATE TABLE IF NOT EXISTS activity (
-  guild_id TEXT, user_id TEXT,
-  messages INTEGER DEFAULT 0, last_message INTEGER DEFAULT 0,
+  guild_id TEXT,
+  user_id TEXT,
+  messages INTEGER DEFAULT 0,
+  last_message INTEGER DEFAULT 0,
   PRIMARY KEY (guild_id, user_id)
 );
+
 CREATE TABLE IF NOT EXISTS server_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT, event TEXT, details TEXT, created_at INTEGER
+  guild_id TEXT,
+  event TEXT,
+  details TEXT,
+  created_at INTEGER
 );
+
 CREATE TABLE IF NOT EXISTS live_panels (
   guild_id TEXT PRIMARY KEY,
   channel_id TEXT NOT NULL,
@@ -151,11 +177,26 @@ const ticketTypes = {
 };
 
 const staffApplicationQuestions = [
-  { name: "1. Discord Username", value: "Please provide your Discord username." },
-  { name: "2. Blockman Go ID", value: "Please provide your Blockman Go account ID." },
-  { name: "3. Previous Staff Experience", value: "Have you ever been a staff member in another server? Explain your experience." },
-  { name: "4. Why do you want to be staff in One4All?", value: "Tell us why you want to join our staff team." },
-  { name: "5. How active are you?", value: "How many hours per day can you dedicate to One4All?" }
+  {
+    name: "1. Discord Username",
+    value: "Please provide your Discord username."
+  },
+  {
+    name: "2. Blockman Go ID",
+    value: "Please provide your Blockman Go account ID."
+  },
+  {
+    name: "3. Previous Staff Experience",
+    value: "Have you ever been a staff member in another server? Explain your experience."
+  },
+  {
+    name: "4. Why do you want to be staff in One4All?",
+    value: "Tell us why you want to join our staff team."
+  },
+  {
+    name: "5. How active are you?",
+    value: "How many hours per day can you dedicate to One4All?"
+  }
 ];
 
 // ================= TICKET LOGS =================
@@ -163,6 +204,7 @@ const staffApplicationQuestions = [
 async function sendTicketLog(guild, embed) {
   try {
     const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
+
     if (channel?.isTextBased()) {
       await channel.send({ embeds: [embed] });
     }
@@ -230,42 +272,143 @@ function commandCenterEmbed(guild) {
       "**Stronger Together.**\nYour community at a glance — live server information and quick access to every section."
     )
     .addFields(
-      { name: "👥 TOTAL MEMBERS", value: `**${guild.memberCount.toLocaleString()}**`, inline: true },
-      { name: "🟢 ONLINE NOW", value: `**${onlineText}**`, inline: true },
-      { name: "🎫 OPEN TICKETS", value: `**${s.openTickets}**`, inline: true },
-      { name: "📨 TRACKED MEMBERS", value: `**${s.tracked}**`, inline: true },
-      { name: "💬 MESSAGES TRACKED", value: `**${s.totalMessages.toLocaleString()}**`, inline: true },
-      { name: "⭐ TOTAL XP", value: `**${s.totalXP.toLocaleString()}**`, inline: true },
-      { name: "📢 SERVER NEWS", value: String(news).slice(0, 1024), inline: false }
+      {
+        name: "👥 TOTAL MEMBERS",
+        value: `**${guild.memberCount.toLocaleString()}**`,
+        inline: true
+      },
+      {
+        name: "🟢 ONLINE NOW",
+        value: `**${onlineText}**`,
+        inline: true
+      },
+      {
+        name: "🎫 OPEN TICKETS",
+        value: `**${s.openTickets}**`,
+        inline: true
+      },
+      {
+        name: "📨 TRACKED MEMBERS",
+        value: `**${s.tracked}**`,
+        inline: true
+      },
+      {
+        name: "💬 MESSAGES TRACKED",
+        value: `**${s.totalMessages.toLocaleString()}**`,
+        inline: true
+      },
+      {
+        name: "⭐ TOTAL XP",
+        value: `**${s.totalXP.toLocaleString()}**`,
+        inline: true
+      },
+      {
+        name: "📢 SERVER NEWS",
+        value: String(news).slice(0, 1024),
+        inline: false
+      }
     )
     .setFooter({
       text: "ONE4ALL • Live refresh every 60 seconds"
     })
     .setTimestamp();
 }
+
 function commandCenterRows() {
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("cc:stats").setLabel("Server Stats").setEmoji("📊").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("cc:leaderboard").setLabel("Leaderboard").setEmoji("🏆").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("cc:directory").setLabel("Members").setEmoji("👥").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("cc:activity").setLabel("Activity").setEmoji("📈").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("cc:achievements").setLabel("Achievements").setEmoji("🏅").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder()
+      .setCustomId("cc:stats")
+      .setLabel("Server Stats")
+      .setEmoji("📊")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:leaderboard")
+      .setLabel("Leaderboard")
+      .setEmoji("🏆")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:directory")
+      .setLabel("Members")
+      .setEmoji("👥")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:activity")
+      .setLabel("Activity")
+      .setEmoji("📈")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:achievements")
+      .setLabel("Achievements")
+      .setEmoji("🏅")
+      .setStyle(ButtonStyle.Secondary)
   );
 
   const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("cc:events").setLabel("Events").setEmoji("🎉").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("cc:goals").setLabel("Goals").setEmoji("🎯").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("cc:spotlight").setLabel("Spotlight").setEmoji("🌟").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("cc:awards").setLabel("Awards").setEmoji("🎖️").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("cc:news").setLabel("News").setEmoji("📢").setStyle(ButtonStyle.Success)
+    new ButtonBuilder()
+      .setCustomId("cc:events")
+      .setLabel("Events")
+      .setEmoji("🎉")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("cc:goals")
+      .setLabel("Goals")
+      .setEmoji("🎯")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("cc:spotlight")
+      .setLabel("Spotlight")
+      .setEmoji("🌟")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("cc:awards")
+      .setLabel("Awards")
+      .setEmoji("🎖️")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("cc:news")
+      .setLabel("News")
+      .setEmoji("📢")
+      .setStyle(ButtonStyle.Success)
   );
 
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("cc:livefeed").setLabel("Live Feed").setEmoji("📰").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("cc:staff").setLabel("Staff Center").setEmoji("🛡️").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("cc:trending").setLabel("Trending").setEmoji("🔥").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("cc:reputation").setLabel("Reputation").setEmoji("⭐").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("cc:home").setLabel("Home").setEmoji("🏠").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder()
+      .setCustomId("cc:livefeed")
+      .setLabel("Live Feed")
+      .setEmoji("📰")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:staff")
+      .setLabel("Staff Center")
+      .setEmoji("🛡️")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:trending")
+      .setLabel("Trending")
+      .setEmoji("🔥")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:reputation")
+      .setLabel("Reputation")
+      .setEmoji("⭐")
+      .setStyle(ButtonStyle.Secondary),
+
+    new ButtonBuilder()
+      .setCustomId("cc:home")
+      .setLabel("Home")
+      .setEmoji("🏠")
+      .setStyle(ButtonStyle.Danger)
   );
 
   return [row1, row2, row3];
@@ -348,13 +491,43 @@ async function handleCommandCenter(interaction) {
       .setColor(GOLD)
       .setTitle("📊 One4All Server Statistics")
       .addFields(
-        { name: "Total Discord Members", value: String(guild.memberCount), inline: true },
-        { name: "Online Members", value: Number.isInteger(s.online) ? String(s.online) : "Presence Intent unavailable", inline: true },
-        { name: "Tracked Members", value: String(s.tracked), inline: true },
-        { name: "Open Tickets", value: String(s.openTickets), inline: true },
-        { name: "Closed Tickets", value: String(s.closedTickets), inline: true },
-        { name: "Tracked Messages", value: s.totalMessages.toLocaleString(), inline: true },
-        { name: "Total XP", value: s.totalXP.toLocaleString(), inline: true }
+        {
+          name: "Total Discord Members",
+          value: String(guild.memberCount),
+          inline: true
+        },
+        {
+          name: "Online Members",
+          value: Number.isInteger(s.online)
+            ? String(s.online)
+            : "Presence Intent unavailable",
+          inline: true
+        },
+        {
+          name: "Tracked Members",
+          value: String(s.tracked),
+          inline: true
+        },
+        {
+          name: "Open Tickets",
+          value: String(s.openTickets),
+          inline: true
+        },
+        {
+          name: "Closed Tickets",
+          value: String(s.closedTickets),
+          inline: true
+        },
+        {
+          name: "Tracked Messages",
+          value: s.totalMessages.toLocaleString(),
+          inline: true
+        },
+        {
+          name: "Total XP",
+          value: s.totalXP.toLocaleString(),
+          inline: true
+        }
       )
       .setTimestamp();
 
@@ -431,7 +604,9 @@ async function handleCommandCenter(interaction) {
       .setColor(GOLD)
       .setTitle("🏅 Achievements")
       .setDescription(
-        "🥉 **First Level** — 100 XP\n🥇 **Active Member** — 1,000 XP\n⭐ **Trusted Member** — 10 reputation points"
+        "🥉 **First Level** — 100 XP\n" +
+        "🥇 **Active Member** — 1,000 XP\n" +
+        "⭐ **Trusted Member** — 10 reputation points"
       );
 
   } else if (id === "cc:reputation") {
@@ -451,7 +626,8 @@ async function handleCommandCenter(interaction) {
           `**${i + 1}.** <@${r.user_id}> — ${r.reputation} points`
         ).join("\n") || "No reputation data yet."
       );
-      } else if (id === "cc:livefeed") {
+
+  } else if (id === "cc:livefeed") {
     if (!isStaff(interaction)) {
       return interaction.reply({
         content: "⛔ Staff access only.",
@@ -500,9 +676,21 @@ async function handleCommandCenter(interaction) {
       .setColor(GOLD)
       .setTitle("🛡️ Staff Center")
       .addFields(
-        { name: "Open Tickets", value: String(open), inline: true },
-        { name: "Claimed Tickets", value: String(claimed), inline: true },
-        { name: "Closed Tickets", value: String(closed), inline: true }
+        {
+          name: "Open Tickets",
+          value: String(open),
+          inline: true
+        },
+        {
+          name: "Claimed Tickets",
+          value: String(claimed),
+          inline: true
+        },
+        {
+          name: "Closed Tickets",
+          value: String(closed),
+          inline: true
+        }
       );
 
   } else if (id === "cc:events") {
@@ -510,7 +698,8 @@ async function handleCommandCenter(interaction) {
       SELECT event, details, created_at
       FROM server_events
       WHERE guild_id=? AND event LIKE '%Event%'
-      ORDER BY id DESC LIMIT 8
+      ORDER BY id DESC
+      LIMIT 8
     `).all(guildId);
 
     embed = new EmbedBuilder()
@@ -528,6 +717,7 @@ async function handleCommandCenter(interaction) {
     ).get(guildId);
 
     let goals = [];
+
     try {
       goals = JSON.parse(data?.goals || "[]");
     } catch {}
@@ -561,6 +751,7 @@ async function handleCommandCenter(interaction) {
     ).get(guildId);
 
     let awards = [];
+
     try {
       awards = JSON.parse(data?.awards || "[]");
     } catch {}
@@ -669,18 +860,28 @@ async function createTicket(interaction, type) {
 
   db.prepare(`
     INSERT INTO tickets
-    (channel_id,guild_id,owner_id,type,created_at)
-    VALUES (?,?,?,?,?)
-  `).run(channel.id, guild.id, user.id, type, Date.now());
+    (channel_id, guild_id, owner_id, type, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    channel.id,
+    guild.id,
+    user.id,
+    type,
+    Date.now()
+  );
 
   const embed = new EmbedBuilder()
     .setColor(GOLD)
     .setTitle(`${info.emoji} ${info.label}`)
-    .setFooter({ text: "One4All Community • 1FA" });
+    .setFooter({
+      text: "One4All Community • 1FA"
+    });
 
   if (type === "staff") {
     embed
-      .setDescription(`Welcome ${user}!\n\nThank you for your interest in joining the One4All Staff Team.`)
+      .setDescription(
+        `Welcome ${user}!\n\nThank you for your interest in joining the One4All Staff Team.`
+      )
       .addFields(staffApplicationQuestions);
   } else {
     embed.setDescription(
@@ -689,8 +890,16 @@ async function createTicket(interaction, type) {
   }
 
   embed.addFields(
-    { name: "Member", value: user.tag, inline: true },
-    { name: "Status", value: "Open", inline: true }
+    {
+      name: "Member",
+      value: user.tag,
+      inline: true
+    },
+    {
+      name: "Status",
+      value: "Open",
+      inline: true
+    }
   );
 
   const buttons = new ActionRowBuilder().addComponents(
@@ -699,6 +908,7 @@ async function createTicket(interaction, type) {
       .setLabel("Claim")
       .setEmoji("🙋")
       .setStyle(ButtonStyle.Primary),
+
     new ButtonBuilder()
       .setCustomId("ticket:close")
       .setLabel("Close")
@@ -710,10 +920,16 @@ async function createTicket(interaction, type) {
     content: `${user} | Ticket Staff`,
     embeds: [embed],
     components: [buttons],
-    allowedMentions: { users: [user.id] }
+    allowedMentions: {
+      users: [user.id]
+    }
   });
 
-  logEvent(guild.id, "Ticket Opened", `${user.tag} • ${info.label}`);
+  logEvent(
+    guild.id,
+    "Ticket Opened",
+    `${user.tag} • ${info.label}`
+  );
 
   await sendTicketLog(
     guild,
@@ -721,9 +937,21 @@ async function createTicket(interaction, type) {
       .setColor(0x22C55E)
       .setTitle("🎫 Ticket Opened")
       .addFields(
-        { name: "Member", value: `${user}`, inline: true },
-        { name: "Type", value: info.label, inline: true },
-        { name: "Channel", value: `${channel}`, inline: true }
+        {
+          name: "Member",
+          value: `${user}`,
+          inline: true
+        },
+        {
+          name: "Type",
+          value: info.label,
+          inline: true
+        },
+        {
+          name: "Channel",
+          value: `${channel}`,
+          inline: true
+        }
       )
       .setTimestamp()
   );
@@ -738,19 +966,34 @@ async function createTicket(interaction, type) {
 
 client.once("ready", async () => {
   console.log(`${client.user.tag} is online!`);
+
   await refreshLivePanels();
-  setInterval(refreshLivePanels, PANEL_REFRESH_MS);
+
+  setInterval(() => {
+    refreshLivePanels().catch(error => {
+      console.error("Live panel refresh error:", error);
+    });
+  }, PANEL_REFRESH_MS);
 });
 
 // ================= MEMBER EVENTS =================
 
 client.on("guildMemberAdd", member => {
   getMember(member.guild.id, member.id);
-  logEvent(member.guild.id, "Member Joined", member.user.tag);
+
+  logEvent(
+    member.guild.id,
+    "Member Joined",
+    member.user.tag
+  );
 });
 
 client.on("guildMemberRemove", member => {
-  logEvent(member.guild.id, "Member Left", member.user.tag || member.id);
+  logEvent(
+    member.guild.id,
+    "Member Left",
+    member.user.tag || member.id
+  );
 });
 
 // ================= XP + ACTIVITY =================
@@ -765,17 +1008,25 @@ client.on("messageCreate", message => {
   db.prepare(`
     UPDATE members SET xp=xp+?
     WHERE guild_id=? AND user_id=?
-  `).run(gained, message.guild.id, message.author.id);
+  `).run(
+    gained,
+    message.guild.id,
+    message.author.id
+  );
 
   db.prepare(`
     INSERT INTO activity
-    (guild_id,user_id,messages,last_message)
-    VALUES (?,?,1,?)
-    ON CONFLICT(guild_id,user_id)
+    (guild_id, user_id, messages, last_message)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(guild_id, user_id)
     DO UPDATE SET
       messages=messages+1,
       last_message=excluded.last_message
-  `).run(message.guild.id, message.author.id, Date.now());
+  `).run(
+    message.guild.id,
+    message.author.id,
+    Date.now()
+  );
 });
 
 // ================= INTERACTIONS =================
@@ -785,6 +1036,7 @@ client.on("interactionCreate", async interaction => {
 
   try {
     if (interaction.isButton()) {
+
       if (interaction.customId.startsWith("ticket:create:")) {
         return await createTicket(
           interaction,
@@ -826,9 +1078,16 @@ client.on("interactionCreate", async interaction => {
         db.prepare(`
           UPDATE tickets SET claimed_by=?
           WHERE channel_id=?
-        `).run(interaction.user.id, interaction.channelId);
+        `).run(
+          interaction.user.id,
+          interaction.channelId
+        );
 
-        logEvent(interaction.guildId, "Ticket Claimed", interaction.user.tag);
+        logEvent(
+          interaction.guildId,
+          "Ticket Claimed",
+          interaction.user.tag
+        );
 
         await interaction.reply({
           content: `🙋 This ticket has been claimed by ${interaction.user}.`
@@ -840,8 +1099,16 @@ client.on("interactionCreate", async interaction => {
             .setColor(0x3B82F6)
             .setTitle("🙋 Ticket Claimed")
             .addFields(
-              { name: "Staff", value: `${interaction.user}`, inline: true },
-              { name: "Channel", value: `${interaction.channel}`, inline: true }
+              {
+                name: "Staff",
+                value: `${interaction.user}`,
+                inline: true
+              },
+              {
+                name: "Channel",
+                value: `${interaction.channel}`,
+                inline: true
+              }
             )
             .setTimestamp()
         );
@@ -877,7 +1144,12 @@ client.on("interactionCreate", async interaction => {
 
         await interaction.channel.permissionOverwrites
           .delete(ticket.owner_id)
-          .catch(error => console.error("Ticket owner permission removal error:", error));
+          .catch(error => {
+            console.error(
+              "Ticket owner permission removal error:",
+              error
+            );
+          });
 
         await interaction.channel.setName(
           `closed-${oldName}`.slice(0, 100)
@@ -888,12 +1160,20 @@ client.on("interactionCreate", async interaction => {
           WHERE channel_id=?
         `).run(interaction.channelId);
 
-        logEvent(interaction.guildId, "Ticket Closed", interaction.user.tag);
+        logEvent(
+          interaction.guildId,
+          "Ticket Closed",
+          interaction.user.tag
+        );
 
-        await interaction.message.edit({ components: [] }).catch(() => {});
+        await interaction.message.edit({
+          components: []
+        }).catch(() => {});
 
         await interaction.channel.send({
-          content: `🔒 Ticket closed by ${interaction.user}.\nThis ticket is now hidden from its owner and regular members. Staff can still access it.`
+          content:
+            `🔒 Ticket closed by ${interaction.user}.\n` +
+            "This ticket is now hidden from its owner and regular members. Staff can still access it."
         }).catch(() => {});
 
         await sendTicketLog(
@@ -902,9 +1182,21 @@ client.on("interactionCreate", async interaction => {
             .setColor(0xEF4444)
             .setTitle("🔒 Ticket Closed")
             .addFields(
-              { name: "Owner", value: `<@${ticket.owner_id}>`, inline: true },
-              { name: "Closed by", value: `${interaction.user}`, inline: true },
-              { name: "Channel", value: `<#${interaction.channelId}>`, inline: true }
+              {
+                name: "Owner",
+                value: `<@${ticket.owner_id}>`,
+                inline: true
+              },
+              {
+                name: "Closed by",
+                value: `${interaction.user}`,
+                inline: true
+              },
+              {
+                name: "Channel",
+                value: `<#${interaction.channelId}>`,
+                inline: true
+              }
             )
             .setTimestamp()
         );
@@ -937,7 +1229,9 @@ client.on("interactionCreate", async interaction => {
         .setDescription(
           "Welcome to One4All Support!\n\nChoose the type of ticket you want to open. Our team will help you as soon as possible."
         )
-        .setFooter({ text: "One4All Community • 1FA" });
+        .setFooter({
+          text: "One4All Community • 1FA"
+        });
 
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -945,6 +1239,7 @@ client.on("interactionCreate", async interaction => {
           .setLabel("Staff Applications")
           .setEmoji("👮")
           .setStyle(ButtonStyle.Success),
+
         new ButtonBuilder()
           .setCustomId("ticket:create:suggestions")
           .setLabel("Suggestions")
@@ -958,6 +1253,7 @@ client.on("interactionCreate", async interaction => {
           .setLabel("Scammer Report")
           .setEmoji("🚨")
           .setStyle(ButtonStyle.Danger),
+
         new ButtonBuilder()
           .setCustomId("ticket:create:support")
           .setLabel("General Support")
@@ -985,6 +1281,7 @@ client.on("interactionCreate", async interaction => {
       }
 
       const action = interaction.options.getSubcommand();
+
       const role = action === "list"
         ? null
         : interaction.options.getRole("role");
@@ -992,7 +1289,8 @@ client.on("interactionCreate", async interaction => {
       if (action === "add") {
         db.prepare(`
           INSERT OR IGNORE INTO ticket_staff_roles
-          (guild_id,role_id) VALUES (?,?)
+          (guild_id, role_id)
+          VALUES (?, ?)
         `).run(guildId, role.id);
 
         return interaction.reply({
@@ -1031,7 +1329,9 @@ client.on("interactionCreate", async interaction => {
     const member = getMember(guildId, userId);
 
     if (command === "id") {
-      const target = interaction.options.getUser("member") || interaction.user;
+      const target =
+        interaction.options.getUser("member") || interaction.user;
+
       const data = getMember(guildId, target.id);
 
       const embed = new EmbedBuilder()
@@ -1039,15 +1339,39 @@ client.on("interactionCreate", async interaction => {
         .setTitle("👑 One4All Digital ID")
         .setThumbnail(target.displayAvatarURL())
         .addFields(
-          { name: "Member", value: target.username, inline: true },
-          { name: "Member ID", value: `#${String(data.member_id).padStart(4, "0")}`, inline: true },
-          { name: "Level", value: String(Math.floor(data.xp / 100) + 1), inline: true },
-          { name: "XP", value: String(data.xp), inline: true },
-          { name: "Reputation", value: String(data.reputation), inline: true }
+          {
+            name: "Member",
+            value: target.username,
+            inline: true
+          },
+          {
+            name: "Member ID",
+            value: `#${String(data.member_id).padStart(4, "0")}`,
+            inline: true
+          },
+          {
+            name: "Level",
+            value: String(Math.floor(data.xp / 100) + 1),
+            inline: true
+          },
+          {
+            name: "XP",
+            value: String(data.xp),
+            inline: true
+          },
+          {
+            name: "Reputation",
+            value: String(data.reputation),
+            inline: true
+          }
         )
-        .setFooter({ text: "One4All Community • 1FA" });
+        .setFooter({
+          text: "One4All Community • 1FA"
+        });
 
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [embed]
+      });
     }
 
     if (command === "rank") {
@@ -1060,27 +1384,40 @@ client.on("interactionCreate", async interaction => {
             .setColor(0x8B5CF6)
             .setTitle("⭐ Your Rank")
             .setDescription(
-              `Level: **${level}**\nXP: **${member.xp}**\nProgress: **${progress}/100 XP**`
+              `Level: **${level}**\n` +
+              `XP: **${member.xp}**\n` +
+              `Progress: **${progress}/100 XP**`
             )
         ]
       });
     }
 
     if (command === "reputation") {
-      const target = interaction.options.getUser("member") || interaction.user;
+      const target =
+        interaction.options.getUser("member") || interaction.user;
+
       const data = getMember(guildId, target.id);
 
       return interaction.reply({
-        content: `🏆 **${target.username}** has **${data.reputation}** reputation points.`
+        content:
+          `🏆 **${target.username}** has **${data.reputation}** reputation points.`
       });
     }
 
     if (command === "achievements") {
       const achievements = [];
 
-      if (member.xp >= 100) achievements.push("🥉 First Level");
-      if (member.xp >= 1000) achievements.push("🥇 Active Member");
-      if (member.reputation >= 10) achievements.push("⭐ Trusted Member");
+      if (member.xp >= 100) {
+        achievements.push("🥉 First Level");
+      }
+
+      if (member.xp >= 1000) {
+        achievements.push("🥇 Active Member");
+      }
+
+      if (member.reputation >= 10) {
+        achievements.push("⭐ Trusted Member");
+      }
 
       return interaction.reply({
         embeds: [
@@ -1098,9 +1435,11 @@ client.on("interactionCreate", async interaction => {
 
     if (command === "leaderboard") {
       const top = db.prepare(`
-        SELECT user_id,xp FROM members
+        SELECT user_id, xp
+        FROM members
         WHERE guild_id=?
-        ORDER BY xp DESC LIMIT 10
+        ORDER BY xp DESC
+        LIMIT 10
       `).all(guildId);
 
       return interaction.reply({
@@ -1127,15 +1466,21 @@ client.on("interactionCreate", async interaction => {
         );
 
         return interaction.reply({
-          content: `⏳ Your next daily reward is available in about ${hours} hours.`,
+          content:
+            `⏳ Your next daily reward is available in about ${hours} hours.`,
           ephemeral: true
         });
       }
 
       db.prepare(`
-        UPDATE members SET xp=xp+50,last_daily=?
+        UPDATE members
+        SET xp=xp+50, last_daily=?
         WHERE guild_id=? AND user_id=?
-      `).run(now, guildId, userId);
+      `).run(
+        now,
+        guildId,
+        userId
+      );
 
       return interaction.reply({
         content: "🎁 You received **50 XP** as your daily reward!"
@@ -1177,12 +1522,18 @@ client.on("interactionCreate", async interaction => {
       getMember(guildId, target.id);
 
       db.prepare(`
-        UPDATE members SET reputation=reputation+?
+        UPDATE members
+        SET reputation=reputation+?
         WHERE guild_id=? AND user_id=?
-      `).run(points, guildId, target.id);
+      `).run(
+        points,
+        guildId,
+        target.id
+      );
 
       return interaction.reply({
-        content: `⭐ Added **${points}** reputation points to ${target}.`
+        content:
+          `⭐ Added **${points}** reputation points to ${target}.`
       });
     }
 
