@@ -165,9 +165,22 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildPresences
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.MessageContent
   ]
 });
+
+// ================= DASHBOARD START =================
+// dashboard.js must be in the same folder as index.js
+
+try {
+  require("./dashboard")(client, db);
+  console.log("One4All Dashboard initialized.");
+} catch (error) {
+  console.error("Dashboard initialization error:", error);
+}
+
+// ================= TICKET CONFIG =================
 
 const ticketTypes = {
   staff: { label: "Staff Applications", emoji: "👮" },
