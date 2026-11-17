@@ -21,8 +21,6 @@ module.exports = function startDashboard(client, db) {
   const REDIRECT_URI = `${BASE_URL}/auth/callback`;
 
   const GUILD_ID = "1568590852723449959";
-
-  // Correct Announcements channel ID
   const ANNOUNCEMENT_CHANNEL_ID = "1568642186579415130";
 
   if (!CLIENT_ID || !CLIENT_SECRET || !SESSION_SECRET) {
@@ -450,6 +448,8 @@ module.exports = function startDashboard(client, db) {
     }
   });
 
+  // ================= PUBLISH UPDATE =================
+
   app.post("/api/updates", requireStaff, async (req, res) => {
     try {
       const title = String(req.body.title || "").trim();
@@ -480,7 +480,16 @@ module.exports = function startDashboard(client, db) {
         })
         .setTimestamp();
 
-      const message = await channel.send({ embeds: [embed] });
+      // Allow @everyone mention only when explicitly included in content.
+      const shouldMentionEveryone = /@everyone\b/.test(content);
+
+      const message = await channel.send({
+        content: shouldMentionEveryone ? "@everyone" : undefined,
+        embeds: [embed],
+        allowedMentions: {
+          parse: shouldMentionEveryone ? ["everyone"] : []
+        }
+      });
 
       const columns = tableColumns("dashboard_updates");
 
